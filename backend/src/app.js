@@ -10,6 +10,7 @@ import {connectToSocket} from "./controllers/socketManager.js";
 import cors from "cors";
 import userRoutes from "./routes/users.routes.js";
 
+require('dotenv').config();
 
 const app = express();
 const server = createServer(app);
@@ -28,7 +29,7 @@ const start = async () => {
         app.set("mongo_user"); // Note: You can also fix or remove this line as it has no value/parameter
         
         console.log("Connecting to MongoDB...");
-        const connectionDb = await mongoose.connect("mongodb+srv://priyanshiZoom:Priyanshi.23@cluster0.4qj44ji.mongodb.net/");
+        const connectionDb = await mongoose.connect("process.env.MONGODB_URL");
         console.log(`MONGO Connected DB host: ${connectionDb.connection.host}`);
         
         server.listen(app.get("port"), () => {
