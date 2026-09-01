@@ -1,0 +1,133 @@
+.navbar {
+    width: 100%;
+    padding: 14px 40px;
+    background: var(--card-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--glass-border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    transition: var(--transition-smooth);
+}
+
+.navbar-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.left {
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.left:hover {
+    transform: scale(1.02);
+}
+
+.left .logo {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--text-dark);
+    letter-spacing: -0.8px;
+}
+
+.left .logo span {
+    color: var(--primary-color);
+}
+
+.right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.right button {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    border: none;
+    transition: var(--transition-smooth);
+}
+
+.btn-guest {
+    background: transparent;
+    color: var(--text-light);
+}
+
+.btn-guest:hover {
+    color: var(--text-dark);
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.btn-register {
+    background: transparent;
+    color: var(--primary-color);
+    border: 2.0px solid var(--primary-color) !important;
+}
+
+.btn-register:hover {
+    background: rgba(99, 102, 241, 0.08);
+    transform: translateY(-1px);
+}
+
+.btn-login {
+    background: var(--primary-color);
+    color: #FFFFFF;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.2);
+}
+
+.btn-login:hover {
+    background: var(--primary-hover);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+    transform: translateY(-1px);
+}
+
+.theme-toggle-btn {
+    background: transparent;
+    border: 1px solid var(--glass-border) !important;
+    cursor: pointer;
+    font-size: 16px;
+    width: 38px;
+    height: 38px;
+    border-radius: 50% !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-smooth);
+    padding: 0 !important;
+}
+
+.theme-toggle-btn:hover {
+    background: rgba(99, 102, 241, 0.08);
+    transform: scale(1.05);
+}
+
+@media (max-width: 768px) {
+    .navbar {
+        padding: 12px 20px;
+    }
+    .right {
+        gap: 8px;
+    }
+    .right button {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+    .theme-toggle-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 520px) {
+    .btn-guest {
+        display: none; /* Hide Guest Join on tiny screens to save space */
+    }
+}

@@ -1,0 +1,1409 @@
+.meeting-wrapper {
+    /* Encapsulate dark theme variables locally inside the meeting room */
+    --meeting-bg: #09090b; /* Zinc 950 - always rich dark */
+    --meeting-card: #18181b; /* Zinc 900 */
+    --meeting-border: #222222; /* Zoom control border dark grey */
+    --meeting-text: #f4f4f5; /* Zinc 100 */
+    --meeting-text-secondary: #a1a1aa; /* Zinc 400 */
+    --meeting-glass-border: rgba(255, 255, 255, 0.06);
+    --meeting-shadow-color: rgba(0, 0, 0, 0.6);
+
+    background-color: var(--meeting-bg);
+    min-height: 100vh;
+    width: 100vw;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+    color: var(--meeting-text);
+}
+
+.meeting-main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    height: calc(100vh - 75px); /* Allocate 75px for Zoom bottom controls panel */
+}
+
+/* Screen sharing banner */
+.screen-share-banner {
+    background: var(--meeting-card);
+    color: var(--meeting-text);
+    border-bottom: 1.5px solid var(--meeting-border);
+    text-align: center;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    z-index: 10;
+    box-shadow: 0 4px 12px var(--meeting-shadow-color);
+}
+
+.stop-share-btn {
+    background: #dc2626;
+    color: #ffffff;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.stop-share-btn:hover {
+    background: #b91c1c;
+}
+
+/* Video Flex Grid layout (centers odd numbers of videos) */
+.video-grid {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 16px;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.grid-1 .video-box {
+    flex: 1 1 100%;
+    max-width: 850px;
+    aspect-ratio: 16/9;
+}
+
+.grid-2 .video-box {
+    flex: 1 1 calc(50% - 16px);
+    max-width: 520px;
+    aspect-ratio: 16/10;
+}
+
+.grid-4 .video-box {
+    flex: 1 1 calc(50% - 16px);
+    max-width: 520px;
+    aspect-ratio: 16/10;
+}
+
+.grid-multi .video-box {
+    flex: 1 1 calc(33.33% - 16px);
+    max-width: 360px;
+    aspect-ratio: 16/10;
+}
+
+/* Video Box styling */
+.video-box {
+    position: relative;
+    background-color: var(--meeting-card);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid var(--meeting-border);
+    box-shadow: 0 4px 15px var(--meeting-shadow-color);
+    transition: var(--transition-smooth);
+}
+
+/* Speaking highlight: clean solid indigo border, no sci-fi neon glow */
+.video-box.speaking-border {
+    border-color: #6366f1 !important;
+}
+
+.video-box video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.video-label-row {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+}
+
+.video-label {
+    background: var(--meeting-card);
+    backdrop-filter: blur(4px);
+    color: var(--meeting-text);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid var(--meeting-glass-border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.speaking-indicator-dot {
+    font-size: 12px;
+    animation: bounceSpeech 1.2s infinite ease-in-out;
+}
+
+@keyframes bounceSpeech {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+
+.mute-icon {
+    background: #ef4444;
+    color: #ffffff;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+/* Camera Placeholder (Avatar) styling */
+.video-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: var(--meeting-bg);
+}
+
+.avatar-circle {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--meeting-card);
+    color: var(--meeting-text);
+    font-size: 28px;
+    font-weight: 700;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 4px 12px var(--meeting-shadow-color);
+    border: 1px solid var(--meeting-border);
+}
+
+/* Zoom-inspired bottom controls bar panel */
+.zoom-controls-bar {
+    height: 75px;
+    background-color: #121212; /* Solid Zoom dark grey */
+    border-top: 1.5px solid #222222;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 24px;
+    z-index: 10;
+    width: 100%;
+}
+
+.zoom-meeting-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.zoom-meeting-info .room-code-tag {
+    font-size: 13px;
+    color: #888888;
+    background: transparent;
+    padding: 0;
+    border: none;
+}
+
+.zoom-meeting-info .room-timer {
+    font-size: 11px;
+    color: #666666;
+}
+
+.zoom-controls-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.zoom-btn {
+    background: transparent;
+    border: none;
+    color: #cccccc;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    padding: 6px 12px;
+    border-radius: 8px;
+    min-width: 70px;
+    position: relative;
+}
+
+.zoom-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+}
+
+.zoom-btn.active {
+    background: rgba(99, 102, 241, 0.15);
+    color: #6366f1;
+}
+
+.zoom-btn.muted {
+    color: #ef4444;
+}
+
+.zoom-btn.off {
+    color: #ef4444;
+}
+
+.zoom-btn-icon {
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 24px;
+    position: relative;
+}
+
+.zoom-btn-label {
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.zoom-btn.green-btn {
+    color: #10b981;
+}
+.zoom-btn.green-btn:hover {
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.08);
+}
+.zoom-btn.green-btn.active {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.zoom-leave-btn {
+    background: #ef4444;
+    color: #ffffff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.zoom-leave-btn:hover {
+    background: #dc2626;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
+/* Zoom Ribbon Chevron & badges */
+.chevron-up {
+    font-size: 8px;
+    opacity: 0.65;
+    margin-left: 2px;
+}
+
+.count-badge {
+    position: absolute;
+    top: -4px;
+    right: -12px;
+    background: #6366f1;
+    color: #ffffff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 6px;
+    line-height: 1;
+}
+
+.zoom-media-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.zoom-actions-right {
+    display: flex;
+    align-items: center;
+}
+
+/* Popover Dropdown Menus */
+.zoom-share-container,
+.zoom-host-container,
+.zoom-reaction-container {
+    position: relative;
+    display: inline-block;
+}
+
+.zoom-share-popover,
+.zoom-host-popover,
+.zoom-reaction-popover {
+    position: absolute;
+    bottom: 65px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #18181b;
+    border: 1.5px solid #27272a;
+    border-radius: 10px;
+    padding: 8px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 190px;
+    animation: popoverFadeUp 0.15s ease-out forwards;
+}
+
+.zoom-reaction-popover {
+    flex-direction: row;
+    min-width: auto;
+    padding: 10px 14px;
+    gap: 12px;
+}
+
+.zoom-reaction-popover span {
+    font-size: 24px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.zoom-reaction-popover span:hover {
+    transform: scale(1.3);
+}
+
+@keyframes popoverFadeUp {
+    from { opacity: 0; transform: translate(-50%, 8px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.zoom-share-popover button,
+.zoom-host-popover button {
+    background: transparent;
+    border: none;
+    color: #f4f4f5;
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 550;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.2s;
+    width: 100%;
+}
+
+.zoom-share-popover button:hover,
+.zoom-host-popover button:hover {
+    background: #27272a;
+}
+
+/* Collaborative Whiteboard Container styling */
+.whiteboard-overlay-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #09090b;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid var(--meeting-border);
+    box-shadow: 0 10px 30px var(--meeting-shadow-color);
+    margin: 16px;
+    position: relative;
+    height: calc(100% - 32px);
+}
+
+.whiteboard-header {
+    background: #18181b;
+    border-bottom: 1.5px solid #27272a;
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    z-index: 5;
+}
+
+.board-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f4f4f5;
+}
+
+.whiteboard-tool-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.whiteboard-tool-bar .tool-btn {
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #f4f4f5;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.whiteboard-tool-bar .tool-btn.active {
+    background: #6366f1;
+}
+
+.color-selectors {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.color-selectors span {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s, border 0.2s;
+    border: 2px solid transparent;
+}
+
+.color-selectors span.selected {
+    transform: scale(1.2);
+    border-color: #ffffff;
+}
+
+.stroke-size-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #a1a1aa;
+}
+
+.stroke-size-selector input[type="range"] {
+    width: 80px;
+    accent-color: #6366f1;
+    cursor: pointer;
+}
+
+.whiteboard-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.whiteboard-actions .clear-btn {
+    background: transparent;
+    border: 1.5px solid #27272a;
+    color: #ef4444;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.whiteboard-actions .clear-btn:hover {
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.whiteboard-actions .close-btn {
+    background: #ef4444;
+    color: #ffffff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.whiteboard-actions .close-btn:hover {
+    background: #dc2626;
+}
+
+.canvas-wrapper {
+    flex: 1;
+    position: relative;
+    background: #09090b;
+    overflow: hidden;
+}
+
+.canvas-wrapper canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+}
+
+/* Floating Controls Bar (Fallback removal) */
+.controls-bar {
+    display: none;
+}
+
+/* Emoji popup float cascade animation */
+.reaction-popup {
+    position: absolute;
+    left: 50%;
+    top: 40%;
+    transform: translate(-50%, -50%);
+    font-size: 70px;
+    z-index: 20;
+    animation: floatReaction 1.8s forwards ease-out;
+    pointer-events: none;
+}
+
+@keyframes floatReaction {
+    0% { transform: translate(-50%, 40px) scale(0.6); opacity: 0; }
+    20% { opacity: 1; transform: translate(-50%, -10px) scale(1.1); }
+    80% { opacity: 1; }
+    100% { transform: translate(-50%, -130px) scale(0.9); opacity: 0; }
+}
+
+/* Sidebar Tabbed Panel styling */
+.sidebar-panel {
+    width: 380px;
+    background-color: var(--meeting-card);
+    border-left: 1.5px solid var(--meeting-border);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    z-index: 15;
+    box-shadow: -10px 0 25px rgba(0,0,0,0.15);
+    transition: var(--transition-smooth);
+}
+
+.sidebar-tabs {
+    display: flex;
+    padding: 12px;
+    border-bottom: 1.5px solid var(--meeting-border);
+    align-items: center;
+}
+
+.tab-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--meeting-text-secondary);
+    padding: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    border-radius: 6px;
+}
+
+.tab-btn.active {
+    color: var(--meeting-text);
+    background: var(--meeting-border);
+}
+
+.close-sidebar-btn {
+    background: transparent;
+    border: none;
+    color: var(--meeting-text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 8px;
+    transition: var(--transition-smooth);
+}
+
+.close-sidebar-btn:hover {
+    color: var(--meeting-text);
+}
+
+.sidebar-tab-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Chat Tab Layout */
+.chat-tab-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.chat-messages-container {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.empty-chat-state {
+    text-align: center;
+    color: var(--meeting-text-secondary);
+    font-size: 13px;
+    margin-top: 30px;
+}
+
+.chat-message-bubble {
+    display: flex;
+    flex-direction: column;
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.chat-message-bubble.sent {
+    align-self: flex-end;
+    background-color: #6366f1; /* Solid indigo - minimal */
+    color: #ffffff;
+    border-bottom-right-radius: 2px;
+}
+
+.chat-message-bubble.received {
+    align-self: flex-start;
+    background-color: var(--meeting-border);
+    color: var(--meeting-text);
+    border-bottom-left-radius: 2px;
+    border: 1px solid var(--meeting-glass-border);
+}
+
+.msg-sender {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--meeting-text-secondary);
+    margin-bottom: 2px;
+}
+
+.chat-input-row {
+    padding: 12px;
+    display: flex;
+    gap: 8px;
+    border-top: 1.5px solid var(--meeting-border);
+}
+
+.chat-input-row input {
+    flex: 1;
+    padding: 10px 14px;
+    background: var(--meeting-bg);
+    border: 1.5px solid var(--meeting-border);
+    border-radius: 8px;
+    color: var(--meeting-text);
+    font-size: 14px;
+    outline: none;
+    transition: var(--transition-smooth);
+}
+
+.chat-input-row input:focus {
+    border-color: #6366f1;
+}
+
+.chat-send-btn {
+    background: #6366f1;
+    color: #ffffff;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.chat-send-btn:hover {
+    background: #4f46e5;
+}
+
+/* Files P2P Tab Layout */
+.files-tab-panel {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.files-tab-panel h4 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--meeting-text);
+}
+
+.files-description {
+    font-size: 13px;
+    color: var(--meeting-text-secondary);
+    line-height: 1.5;
+}
+
+.file-upload-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.file-selector-label {
+    display: block;
+    background: var(--meeting-bg);
+    color: var(--meeting-text);
+    border: 1px solid var(--meeting-glass-border);
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.file-selector-label:hover {
+    background: var(--meeting-glass-border);
+}
+
+.transfer-progress-card {
+    background: var(--meeting-bg);
+    border: 1.5px solid var(--meeting-border);
+    padding: 12px 16px;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.transfer-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--meeting-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.transfer-bar-track {
+    height: 6px;
+    background: var(--meeting-card);
+    border-radius: 3px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.transfer-bar-fill {
+    height: 100%;
+    background: #6366f1;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.transfer-percent {
+    align-self: flex-end;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--meeting-text-secondary);
+}
+
+.received-files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.empty-files-state {
+    text-align: center;
+    color: var(--meeting-text-secondary);
+    font-size: 13px;
+    padding: 20px 0;
+}
+
+.received-file-item {
+    background: var(--meeting-bg);
+    border: 1px solid var(--meeting-border);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.file-info-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: hidden;
+    flex: 1;
+}
+
+.file-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--meeting-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-meta {
+    font-size: 11px;
+    color: var(--meeting-text-secondary);
+}
+
+.download-file-btn {
+    background: #6366f1;
+    color: #ffffff;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 12px;
+    border-radius: 6px;
+    transition: var(--transition-smooth);
+}
+
+.download-file-btn:hover {
+    background: #4f46e5;
+}
+
+/* Polls Layout */
+.polls-tab-panel {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.divider-line {
+    height: 1px;
+    background: var(--meeting-glass-border);
+}
+
+/* Active Poll Card */
+.active-poll-card {
+    background: var(--meeting-bg);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1.5px solid var(--meeting-border);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.active-poll-tag {
+    align-self: flex-start;
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 4px;
+}
+
+.active-poll-card h4 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--meeting-text);
+}
+
+.poll-options-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.poll-vote-btn {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--meeting-card);
+    border: 1px solid var(--meeting-border);
+    border-radius: 8px;
+    color: var(--meeting-text);
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.poll-vote-btn:hover {
+    background: var(--meeting-border);
+}
+
+.poll-results-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.results-label-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: var(--meeting-text);
+}
+
+.voted-marker {
+    color: #6366f1;
+    font-size: 11px;
+    margin-left: 6px;
+}
+
+.results-bar-track {
+    height: 6px;
+    background: var(--meeting-card);
+    border-radius: 3px;
+    width: 100%;
+    overflow: hidden;
+}
+
+.results-bar-fill {
+    height: 100%;
+    background: #6366f1;
+    border-radius: 3px;
+    transition: width 0.6s ease;
+}
+
+.reset-poll-btn {
+    margin-top: 4px;
+    background: #ef4444;
+    color: #ffffff;
+    border: none;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    width: 100%;
+}
+
+.reset-poll-btn:hover {
+    background: #dc2626;
+}
+
+/* Create Poll Card styling */
+.create-poll-card {
+    background: var(--meeting-bg);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1.5px solid var(--meeting-border);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.create-poll-card h4 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--meeting-text);
+}
+
+.create-poll-card .input-group input {
+    background: var(--meeting-card);
+    border: 1.5px solid var(--meeting-border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--meeting-text);
+    font-size: 14px;
+    outline: none;
+    transition: var(--transition-smooth);
+}
+
+.create-poll-card .input-group input:focus {
+    border-color: #6366f1;
+}
+
+.poll-options-setup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.poll-option-input-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.poll-option-input-row input {
+    flex: 1;
+    background: var(--meeting-card);
+    border: 1.5px solid var(--meeting-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--meeting-text);
+    font-size: 14px;
+    outline: none;
+}
+
+.del-opt-btn {
+    background: transparent;
+    color: #ef4444;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 6px;
+}
+
+.add-opt-btn {
+    background: transparent;
+    border: none;
+    color: #6366f1;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    align-self: flex-start;
+}
+
+.add-opt-btn:hover {
+    color: #4f46e5;
+}
+
+.launch-poll-btn {
+    background: #6366f1;
+    color: #ffffff;
+    border: none;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.launch-poll-btn:hover {
+    background: #4f46e5;
+}
+
+/* Toast Notifications Container */
+.notifications-container {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 1000;
+    pointer-events: none;
+    max-width: 320px;
+}
+
+.notification-toast {
+    pointer-events: auto;
+    background: rgba(24, 24, 27, 0.95);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--meeting-border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    color: var(--meeting-text);
+    box-shadow: 0 10px 25px var(--meeting-shadow-color);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: toastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes toastSlideIn {
+    0% { transform: translateX(120%); opacity: 0; }
+    100% { transform: translateX(0); opacity: 1; }
+}
+
+.toast-icon {
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toast-text {
+    font-size: 13px;
+    font-weight: 550;
+    line-height: 1.4;
+    flex: 1;
+}
+
+.toast-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--meeting-text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toast-close-btn:hover {
+    color: var(--meeting-text);
+}
+
+/* Closed Caption Subtitles Overlay */
+.subtitles-overlay-banner {
+    position: absolute;
+    bottom: 24px; /* Sits cleanly above bottom panel within meeting space */
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(24, 24, 27, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1.5px solid var(--meeting-border);
+    padding: 10px 24px;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px var(--meeting-shadow-color);
+    max-width: 80%;
+    width: auto;
+    text-align: center;
+    z-index: 8;
+    pointer-events: none;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    animation: subtitleFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes subtitleFadeIn {
+    from { opacity: 0; transform: translate(-50%, 12px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.subtitle-speaker {
+    color: #6366f1;
+    font-weight: 750;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.subtitle-text {
+    color: var(--meeting-text);
+    font-size: 13px;
+    font-weight: 550;
+    line-height: 1.4;
+}
+
+/* AI Notes Sidebar Styles (Split screen summary/transcript view) */
+.notes-tab-panel {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    height: 100%;
+}
+
+.notes-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    gap: 10px;
+}
+
+.notes-header-row h4 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--meeting-text);
+    margin: 0;
+}
+
+.transcription-lang-selector {
+    display: flex;
+    align-items: center;
+}
+
+.transcription-lang-selector select {
+    background: var(--meeting-card);
+    border: 1px solid var(--meeting-border);
+    color: var(--meeting-text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.transcription-lang-selector select:hover {
+    border-color: #6366f1;
+}
+
+.notes-header-row .summary-dl-btn {
+    background: #6366f1;
+    color: #ffffff;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.notes-header-row .summary-dl-btn:hover {
+    background: #4f46e5;
+}
+
+.notes-description {
+    font-size: 12px;
+    color: var(--meeting-text-secondary);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.notes-divider {
+    height: 1px;
+    background: var(--meeting-border);
+    width: 100%;
+}
+
+.notes-block-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.notes-block-section.flex-expand {
+    flex: 1;
+    min-height: 250px;
+}
+
+.notes-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6366f1;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.live-summary-container {
+    background: var(--meeting-bg);
+    border: 1px solid var(--meeting-border);
+    border-radius: 10px;
+    padding: 12px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.markdown-live-body .waiting-placeholder {
+    color: var(--meeting-text-secondary);
+    font-size: 12px;
+    font-style: italic;
+    margin: 0;
+}
+
+.summary-pre-text {
+    font-family: var(--font-main);
+    font-size: 13px;
+    color: var(--meeting-text-secondary);
+    white-space: pre-wrap;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.transcript-live-feed {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    max-height: 240px;
+}
+
+.empty-notes-state {
+    text-align: center;
+    color: var(--meeting-text-secondary);
+    font-size: 12px;
+    padding: 20px 0;
+    font-style: italic;
+}
+
+.transcript-log-item {
+    background: var(--meeting-bg);
+    border: 1.5px solid var(--meeting-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.log-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.log-speaker {
+    font-size: 11px;
+    font-weight: 750;
+    color: #6366f1;
+}
+
+.log-time {
+    font-size: 9px;
+    color: var(--meeting-text-secondary);
+}
+
+.log-text {
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--meeting-text);
+    margin: 0;
+}
+
+@media (max-width: 900px) {
+    .meeting-wrapper {
+        flex-direction: column;
+    }
+    .meeting-main-content {
+        height: calc(100vh - 250px - 75px);
+    }
+    .sidebar-panel {
+        width: 100%;
+        height: 250px;
+    }
+    .zoom-controls-bar {
+        padding: 0 12px;
+    }
+    .emoji-picker-row {
+        display: none;
+    }
+    .zoom-meeting-info {
+        display: none;
+    }
+    .zoom-btn {
+        min-width: 50px;
+        padding: 4px 6px;
+    }
+}
+
+@media (max-width: 520px) {
+    .zoom-controls-group {
+        gap: 6px;
+    }
+    .zoom-btn-icon {
+        font-size: 16px;
+    }
+    .zoom-btn-label {
+        font-size: 9px;
+    }
+    .zoom-leave-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+    }
+}

@@ -22,9 +22,11 @@ const login = async(req,res)=>{
             user.token = token;
             await user.save();
             return res.status(httpStatus.OK).json({token: token});
+        } else {
+            return res.status(httpStatus.UNAUTHORIZED).json({message: "Invalid Username or Password"});
         }
     }catch(e){
-        return res.status(500).json({message: "Something went wrong ${e}"});
+        return res.status(500).json({message: `Something went wrong: ${e.message || e}`});
     }
 }
 
@@ -50,8 +52,17 @@ const register = async(req,res) =>{
 
         res.status(httpStatus.CREATED).json({message: "User Register"});
     } catch(e){
-        res.json({message: `Something went wrong ${e}`});
+        res.status(500).json({message: `Something went wrong: ${e.message || e}`});
     }
 }
 
-export {login, register};
+const getUserProfile = async (req, res) => {
+    try {
+        const user = req.user;
+        return res.status(200).json({ name: user.name, username: user.username });
+    } catch (e) {
+        return res.status(500).json({ message: `Failed to fetch profile: ${e.message}` });
+    }
+}
+
+export {login, register, getUserProfile};

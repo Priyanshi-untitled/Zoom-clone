@@ -1,6 +1,8 @@
 import dns from "node:dns";
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
+import 'dotenv/config';
+
 import express from "express";
 import {createServer} from "node:http";
 
@@ -9,8 +11,7 @@ import mongoose from "mongoose";
 import {connectToSocket} from "./controllers/socketManager.js";
 import cors from "cors";
 import userRoutes from "./routes/users.routes.js";
-
-require('dotenv').config();
+import meetingRoutes from "./routes/meeting.routes.js";
 
 const app = express();
 const server = createServer(app);
@@ -23,21 +24,26 @@ app.use(express.json({limit:"40kb"}));
 app.use(express.urlencoded({limit:"40kb", extended:true}));
 
 app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/meetings", meetingRoutes);
 
 const start = async () => {
     try {
-        app.set("mongo_user"); // Note: You can also fix or remove this line as it has no value/parameter
+        const mongoUri = process.env.MONGODB_URL || process.env.MONGO_URI;
+        if (!mongoUri) {
+            throw new Error("MONGODB_URL or MONGO_URI is not defined in environment variables");
+        }
         
         console.log("Connecting to MongoDB...");
-        const connectionDb = await mongoose.connect("process.env.MONGODB_URL");
+        const connectionDb = await mongoose.connect(mongoUri);
         console.log(`MONGO Connected DB host: ${connectionDb.connection.host}`);
         
-        server.listen(app.get("port"), () => {
-            console.log("Listening to Port 8000");
+        const port = app.get("port");
+        server.listen(port, () => {
+            console.log(`Listening on Port ${port}`);
         });
     } catch (error) {
         console.error("Database connection failed:", error.message);
-        process.exit(1); // Exits the process safely with failure code
+        process.exit(1);
     }
 }
 

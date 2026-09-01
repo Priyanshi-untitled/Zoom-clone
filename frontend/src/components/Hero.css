@@ -1,0 +1,126 @@
+.hero {
+    padding-top: 20px;
+    padding-bottom: 40px;
+    min-height: calc(100vh - 80px);
+    display: flex;
+    align-items: center;
+}
+
+.hero-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 40px;
+    width: 100%;
+}
+
+.left {
+    max-width: 550px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.badge {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--primary-color);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 24px;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    display: inline-block;
+}
+
+.left h3 {
+    font-size: 48px;
+    font-weight: 800;
+    color: var(--text-dark);
+    line-height: 1.25;
+    margin-bottom: 20px;
+    letter-spacing: -1.2px;
+}
+
+.left h4 {
+    font-size: 17px;
+    font-weight: 400;
+    color: var(--text-light);
+    margin-bottom: 36px;
+    line-height: 1.6;
+}
+
+.cta-btn {
+    background: var(--primary-color);
+    color: #FFFFFF;
+    border: none;
+    padding: 15px 36px;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(99, 102, 241, 0.25);
+    transition: var(--transition-smooth);
+}
+
+.cta-btn:hover {
+    background: var(--primary-hover);
+    box-shadow: 0 12px 30px rgba(99, 102, 241, 0.4);
+    transform: translateY(-3px);
+}
+
+.right {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    max-width: 500px;
+    width: 100%;
+}
+
+.image-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 450px;
+    height: 400px;
+    filter: drop-shadow(0 20px 40px rgba(99, 102, 241, 0.15));
+}
+
+.hero-img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    clip-path: url(#blobShape);
+    animation: morph 8s ease-in-out infinite alternate;
+}
+
+@keyframes morph {
+    0% {
+        border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+    }
+    50% {
+        border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
+    }
+    100% {
+        border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+    }
+}
+
+@media (max-width: 991px) {
+    .hero-container {
+        flex-direction: column;
+        text-align: center;
+        gap: 50px;
+        padding: 40px 20px;
+    }
+    .left {
+        align-items: center;
+        max-width: 100%;
+    }
+    .left h3 {
+        font-size: 38px;
+    }
+}
