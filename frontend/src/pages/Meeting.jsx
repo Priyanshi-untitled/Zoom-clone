@@ -14,8 +14,11 @@ function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
     const videoRef = useRef(null)
 
     useEffect(() => {
-        if (videoRef.current && stream && !isCameraOff && videoRef.current.srcObject !== stream) {
-            videoRef.current.srcObject = stream
+        if (videoRef.current && stream && !isCameraOff) {
+            if (videoRef.current.srcObject !== stream) {
+                videoRef.current.srcObject = stream
+            }
+            videoRef.current.play().catch(() => {})
         }
     }) // Runs on every render to ensure srcObject binding is persistent
 
@@ -82,6 +85,16 @@ function Meeting() {
     // Sidebar panel controls
     const [showSidebar, setShowSidebar] = useState(false)
     const [sidebarTab, setSidebarTab] = useState("chat") // "chat", "files", "polls", or "notes"
+    const showSidebarRef = useRef(showSidebar)
+    const sidebarTabRef = useRef(sidebarTab)
+
+    useEffect(() => {
+        showSidebarRef.current = showSidebar
+    }, [showSidebar])
+
+    useEffect(() => {
+        sidebarTabRef.current = sidebarTab
+    }, [sidebarTab])
     
     // Chat states
     const [messages, setMessages] = useState([])              // [{sender, data}]
@@ -126,8 +139,11 @@ function Meeting() {
 
     // Setup local video render effect (keeps srcObject persistent on updates)
     useEffect(() => {
-        if (localVideoRef.current && currentLocalStream && !isCameraOff && localVideoRef.current.srcObject !== currentLocalStream) {
-            localVideoRef.current.srcObject = currentLocalStream
+        if (localVideoRef.current && currentLocalStream && !isCameraOff) {
+            if (localVideoRef.current.srcObject !== currentLocalStream) {
+                localVideoRef.current.srcObject = currentLocalStream
+            }
+            localVideoRef.current.play().catch(() => {})
         }
     })
 
@@ -406,37 +422,52 @@ function Meeting() {
         }
 
         peer.ontrack = (event) => {
-            const remoteStream = event.streams[0]
-            setRemoteStreams(prev => ({ ...prev, [userId]: remoteStream }))
+            const remoteStream = event.streams[0] || new MediaStream([event.track])
+            setRemoteStreams(prev => {
+                const existing = prev[userId]
+                if (existing && existing !== remoteStream) {
+                    if (!existing.getTracks().some(t => t.id === event.track.id)) {
+                        existing.addTrack(event.track)
+                        return { ...prev, [userId]: new MediaStream(existing.getTracks()) }
+                    }
+                    return prev
+                }
+                return { ...prev, [userId]: remoteStream }
+            })
 
             // Audio Level Detector for active speaker outline
-            try {
-                const AudioCtx = window.AudioContext || window.webkitAudioContext
-                const audioContext = new AudioCtx()
-                const source = audioContext.createMediaStreamSource(remoteStream)
-                const analyser = audioContext.createAnalyser()
-                analyser.fftSize = 256
-                source.connect(analyser)
+            if (remoteStream.getAudioTracks().length > 0) {
+                try {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext
+                    const audioContext = new AudioCtx()
+                    const source = audioContext.createMediaStreamSource(remoteStream)
+                    const analyser = audioContext.createAnalyser()
+                    analyser.fftSize = 256
+                    source.connect(analyser)
 
-                const bufferLength = analyser.frequencyBinCount
-                const dataArray = new Uint8Array(bufferLength)
+                    const bufferLength = analyser.frequencyBinCount
+                    const dataArray = new Uint8Array(bufferLength)
 
-                const checkRemoteVol = () => {
-                    analyser.getByteFrequencyData(dataArray)
-                    let sum = 0
-                    for (let i = 0; i < bufferLength; i++) {
-                        sum += dataArray[i]
+                    const checkRemoteVol = () => {
+                        analyser.getByteFrequencyData(dataArray)
+                        let sum = 0
+                        for (let i = 0; i < bufferLength; i++) {
+                            sum += dataArray[i]
+                        }
+                        const average = sum / bufferLength
+                        setRemoteSpeakingStates(prev => ({
+                            ...prev,
+                            [userId]: average > 25
+                        }))
                     }
-                    const average = sum / bufferLength
-                    setRemoteSpeakingStates(prev => ({
-                        ...prev,
-                        [userId]: average > 25
-                    }))
+                    if (remoteAudioIntervals.current[userId]) {
+                        clearInterval(remoteAudioIntervals.current[userId])
+                    }
+                    const intervalId = setInterval(checkRemoteVol, 200)
+                    remoteAudioIntervals.current[userId] = intervalId
+                } catch (err) {
+                    console.error("Remote audio analyzer setup failure:", err)
                 }
-                const intervalId = setInterval(checkRemoteVol, 200)
-                remoteAudioIntervals.current[userId] = intervalId
-            } catch (err) {
-                console.error("Remote audio analyzer setup failure:", err)
             }
         }
 
@@ -958,7 +989,7 @@ ${decisions.length > 0
                     setTimeout(() => setReactionPopup(null), 1800)
                 } else {
                     setMessages(prev => [...prev, { sender, data }])
-                    if (!showSidebar || sidebarTab !== "chat") {
+                    if (!showSidebarRef.current || sidebarTabRef.current !== "chat") {
                         addNotification(`New chat from ${sender}: "${data.length > 25 ? data.substring(0, 22) + '...' : data}"`, "chat")
                     }
                 }
@@ -1073,7 +1104,7 @@ ${decisions.length > 0
             }
             Object.values(remoteAudioIntervals.current).forEach(id => clearInterval(id))
         }
-    }, [showSidebar, sidebarTab])
+    }, [])
 
     // Get current votes tally
     const getVotesTally = () => {
