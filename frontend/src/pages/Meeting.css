@@ -211,6 +211,10 @@
     object-fit: cover;
     display: block;
     background: #000;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    transform: translateZ(0);
+    backface-visibility: hidden;
 }
 
 .video-label-row {

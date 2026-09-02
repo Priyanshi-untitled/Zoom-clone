@@ -17,6 +17,21 @@ const peerConfig = {
     iceCandidatePoolSize: 10
 }
 
+// HD Bitrate Booster to prevent blurriness and pixelation in WebRTC video feeds
+const boostSdpBitrate = (sdp, bitrateKbps = 3500) => {
+    if (!sdp) return sdp
+    let modifiedSdp = sdp.replace(/m=video ([^\r\n]+)([\r\n]+)/g, (match) => {
+        return `${match}b=AS:${bitrateKbps}\r\nb=TIAS:${bitrateKbps * 1000}\r\n`
+    })
+    modifiedSdp = modifiedSdp.replace(/(a=fmtp:\d+ [^\r\n]+)/g, (match) => {
+        if (!match.includes('x-google-min-bitrate')) {
+            return `${match};x-google-min-bitrate=1500;x-google-start-bitrate=2500;x-google-max-bitrate=5000`
+        }
+        return match
+    })
+    return modifiedSdp
+}
+
 // Polished Remote Video component with dedicated persistent audio element to guarantee mic audio always plays
 function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
     const videoRef = useRef(null)
@@ -519,6 +534,21 @@ function Meeting() {
             }
         }
 
+        // Configure sender parameters to maintain crystal clear HD resolution and high bitrate
+        const videoSender = peer.getSenders().find(s => s.track && s.track.kind === 'video')
+        if (videoSender && videoSender.getParameters) {
+            try {
+                const params = videoSender.getParameters()
+                if (!params.encodings || params.encodings.length === 0) {
+                    params.encodings = [{}]
+                }
+                params.encodings[0].maxBitrate = 4000000 // 4 Mbps Full HD
+                params.encodings[0].maxFramerate = 30
+                params.degradationPreference = 'maintain-resolution' // Prioritize crisp pixels over dropping resolution
+                videoSender.setParameters(params).catch(() => {})
+            } catch (e) {}
+        }
+
         peersRef.current[userId] = peer
         return peer
     }
@@ -836,7 +866,13 @@ ${decisions.length > 0
             setDisplayName(resolvedName)
             sessionStorage.setItem("guestName", resolvedName)
 
-            // Setup audio/video media with studio noise/echo cancellation constraints
+            // Setup audio/video media with studio noise/echo cancellation constraints & Full HD 1080p
+            const videoMediaConstraints = { 
+                width: { min: 640, ideal: 1920, max: 1920 }, 
+                height: { min: 480, ideal: 1080, max: 1080 }, 
+                frameRate: { ideal: 30, max: 60 },
+                facingMode: "user" 
+            }
             const audioMediaConstraints = {
                 echoCancellation: true,
                 noiseSuppression: true,
@@ -847,19 +883,26 @@ ${decisions.length > 0
             let stream = null
             try {
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, 
+                    video: videoMediaConstraints, 
                     audio: audioMediaConstraints 
                 })
             } catch (mediaErr) {
-                console.warn("Could not get both video and audio, trying audio only:", mediaErr)
+                console.warn("Could not get Full HD video, trying 720p fallback:", mediaErr)
                 try {
-                    stream = await navigator.mediaDevices.getUserMedia({ audio: audioMediaConstraints })
-                    setIsCameraOff(true)
-                } catch (audioErr) {
-                    console.error("Could not get any media stream:", audioErr)
-                    stream = new MediaStream()
-                    setIsCameraOff(true)
-                    setIsMuted(true)
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                        audio: audioMediaConstraints 
+                    })
+                } catch (fallbackErr) {
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ audio: audioMediaConstraints })
+                        setIsCameraOff(true)
+                    } catch (audioErr) {
+                        console.error("Could not get any media stream:", audioErr)
+                        stream = new MediaStream()
+                        setIsCameraOff(true)
+                        setIsMuted(true)
+                    }
                 }
             }
 
@@ -992,7 +1035,11 @@ ${decisions.length > 0
                             offerToReceiveAudio: true,
                             offerToReceiveVideo: true
                         })
-                        await peer.setLocalDescription(offer)
+                        const boostedOffer = new RTCSessionDescription({
+                            type: offer.type,
+                            sdp: boostSdpBitrate(offer.sdp, 4000)
+                        })
+                        await peer.setLocalDescription(boostedOffer)
                         socketRef.current.emit('signal', newUserId, JSON.stringify({ sdp: peer.localDescription }))
                     } catch (offerErr) {
                         console.error("Error creating WebRTC offer:", offerErr)
@@ -1056,7 +1103,11 @@ ${decisions.length > 0
                                 offerToReceiveAudio: true,
                                 offerToReceiveVideo: true
                             })
-                            await peer.setLocalDescription(answer)
+                            const boostedAnswer = new RTCSessionDescription({
+                                type: answer.type,
+                                sdp: boostSdpBitrate(answer.sdp, 4000)
+                            })
+                            await peer.setLocalDescription(boostedAnswer)
                             socketRef.current.emit('signal', fromId, JSON.stringify({ sdp: peer.localDescription }))
                         }
                         
