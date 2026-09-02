@@ -7,9 +7,17 @@ import './Meeting.css'
 
 const peerConfig = {
     iceServers: [
-        { urls: "stun:stun.l.google.com:19302" }
-    ]
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" }
+    ],
+    iceCandidatePoolSize: 10
 }
+
+// Polished Remote Video component using stable render tracker to prevent disappearing streams
 function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
     const videoRef = useRef(null)
 
@@ -28,8 +36,8 @@ function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
     }
 
     return (
-        <div className={`video-box ${isCameraOff ? 'camera-off' : ''} ${isSpeaking ? 'speaking-border' : ''}`}>
-            {isCameraOff ? (
+        <div className={`video-box ${isCameraOff || !stream ? 'camera-off' : ''} ${isSpeaking ? 'speaking-border' : ''}`}>
+            {isCameraOff || !stream ? (
                 <div className="video-placeholder">
                     <div className="avatar-circle">
                         {getInitials(name)}
@@ -390,8 +398,14 @@ function Meeting() {
         })
     }
 
-    // ---- Helper: ek naye user ke liye peer connection banao ----
+    // ---- Helper: create peer connection for remote participant ----
     const createPeerConnection = (userId, isOfferer = false) => {
+        if (peersRef.current[userId]) {
+            try {
+                peersRef.current[userId].close()
+            } catch (e) {}
+        }
+
         const peer = new RTCPeerConnection(peerConfig)
 
         // Add audio track from localStream
@@ -473,7 +487,7 @@ function Meeting() {
 
         peer.onicecandidate = (event) => {
             if (event.candidate) {
-                socketRef.current.emit('signal', userId, JSON.stringify({ ice: event.candidate }))
+                socketRef.current?.emit('signal', userId, JSON.stringify({ ice: event.candidate }))
             }
         }
 
@@ -483,14 +497,16 @@ function Meeting() {
 
     // ---- Mute / Camera toggle ----
     const toggleMute = () => {
-        const audioTrack = localStreamRef.current.getAudioTracks()[0]
-        audioTrack.enabled = !audioTrack.enabled
-        setIsMuted(!audioTrack.enabled)
-        socketRef.current.emit('toggle-mute', !audioTrack.enabled)
+        const audioTrack = localStreamRef.current?.getAudioTracks()[0]
+        if (audioTrack) {
+            audioTrack.enabled = !audioTrack.enabled
+            setIsMuted(!audioTrack.enabled)
+            socketRef.current?.emit('toggle-mute', !audioTrack.enabled)
+        }
 
         // Sync local Speech recognition with mute toggle
         if (recognitionRef.current) {
-            if (audioTrack.enabled) {
+            if (audioTrack && audioTrack.enabled) {
                 try {
                     recognitionRef.current.start()
                 } catch (e) {
@@ -505,10 +521,12 @@ function Meeting() {
     }
 
     const toggleCamera = () => {
-        const videoTrack = localStreamRef.current.getVideoTracks()[0]
-        videoTrack.enabled = !videoTrack.enabled
-        setIsCameraOff(!videoTrack.enabled)
-        socketRef.current.emit('toggle-camera', !videoTrack.enabled)
+        const videoTrack = localStreamRef.current?.getVideoTracks()[0]
+        if (videoTrack) {
+            videoTrack.enabled = !videoTrack.enabled
+            setIsCameraOff(!videoTrack.enabled)
+            socketRef.current?.emit('toggle-camera', !videoTrack.enabled)
+        }
     }
 
     // ---- Screen Share ----
@@ -544,14 +562,18 @@ function Meeting() {
         if (screenStreamRef.current) {
             screenStreamRef.current.getTracks().forEach(track => track.stop())
         }
-        const camTrack = localStreamRef.current.getVideoTracks()[0]
+        const camTrack = localStreamRef.current?.getVideoTracks()[0]
 
-        Object.values(peersRef.current).forEach(peer => {
-            const sender = peer.getSenders().find(s => s.track && s.track.kind === 'video')
-            if (sender) sender.replaceTrack(camTrack)
-        })
+        if (camTrack) {
+            Object.values(peersRef.current).forEach(peer => {
+                const sender = peer.getSenders().find(s => s.track && s.track.kind === 'video')
+                if (sender) sender.replaceTrack(camTrack)
+            })
+        }
 
-        setCurrentLocalStream(localStreamRef.current)
+        if (localStreamRef.current) {
+            setCurrentLocalStream(localStreamRef.current)
+        }
         setIsScreenSharing(false)
         isScreenSharingRef.current = false
     }
@@ -559,14 +581,14 @@ function Meeting() {
     // ---- Chat ----
     const sendMessage = () => {
         if (chatInput.trim() === "") return
-        socketRef.current.emit('chat-message', chatInput, displayName)
+        socketRef.current?.emit('chat-message', chatInput, displayName)
         setMessages(prev => [...prev, { sender: "You", data: chatInput }])
         setChatInput("")
     }
 
     // ---- Emoji Reaction ----
     const sendReaction = (emoji) => {
-        socketRef.current.emit('chat-message', `__REACTION__${emoji}`, displayName)
+        socketRef.current?.emit('chat-message', `__REACTION__${emoji}`, displayName)
         setReactionPopup(emoji)
         setTimeout(() => setReactionPopup(null), 1800)
     }
@@ -593,13 +615,13 @@ function Meeting() {
     const createPoll = () => {
         const filteredOptions = pollOptions.filter(o => o.trim() !== "")
         if (!pollQuestion.trim() || filteredOptions.length < 2) return
-        socketRef.current.emit('create-poll', pollQuestion, filteredOptions)
+        socketRef.current?.emit('create-poll', pollQuestion, filteredOptions)
         setPollQuestion("")
         setPollOptions(["", ""])
     }
 
     const castVote = (optionIdx) => {
-        socketRef.current.emit('cast-vote', optionIdx)
+        socketRef.current?.emit('cast-vote', optionIdx)
         setHasVoted(true)
     }
 
@@ -683,7 +705,7 @@ ${decisions.length > 0
         }
     }
 
-    // Host utility actions (Now supports explicit enable/disable signals)
+    // Host utility actions
     const handleHostMuteAll = (shouldMute) => {
         socketRef.current?.emit('host-mute-all', shouldMute)
         addNotification(shouldMute ? "You muted all participants." : "You unmuted all participants.", "info")
@@ -723,16 +745,18 @@ ${decisions.length > 0
 
     // Get current grid configuration
     const getGridClass = () => {
-        const count = Object.keys(remoteStreams).length + 1
-        if (count === 1) return "grid-1"
-        if (count === 2) return "grid-2"
-        if (count <= 4) return "grid-4"
+        const otherParticipantsCount = Object.keys(participants).filter(id => id !== socketRef.current?.id).length
+        const totalCount = otherParticipantsCount + 1
+        if (totalCount === 1) return "grid-1"
+        if (totalCount === 2) return "grid-2"
+        if (totalCount <= 4) return "grid-4"
         return "grid-multi"
     }
 
     // Init call & socket
     useEffect(() => {
         const init = async () => {
+            const cleanCode = (code || "").toString().replace(/^\/meeting\//, "").split("/").pop().trim()
             let resolvedName = location.state?.guestName || sessionStorage.getItem("guestName")
             
             // If logged in, fetch user details from database
@@ -761,39 +785,56 @@ ${decisions.length > 0
             setDisplayName(resolvedName)
             sessionStorage.setItem("guestName", resolvedName)
 
-            // Setup audio media
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            // Setup audio/video media with graceful fallback
+            let stream = null
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            } catch (mediaErr) {
+                console.warn("Could not get both video and audio, trying audio only:", mediaErr)
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+                    setIsCameraOff(true)
+                } catch (audioErr) {
+                    console.error("Could not get any media stream:", audioErr)
+                    stream = new MediaStream()
+                    setIsCameraOff(true)
+                    setIsMuted(true)
+                }
+            }
+
             setCurrentLocalStream(stream)
             localStreamRef.current = stream
 
             // Local Mic Volume level check for local speaking border
-            try {
-                const AudioCtx = window.AudioContext || window.webkitAudioContext
-                const audioContext = new AudioCtx()
-                const source = audioContext.createMediaStreamSource(stream)
-                const analyser = audioContext.createAnalyser()
-                analyser.fftSize = 256
-                source.connect(analyser)
+            if (stream.getAudioTracks().length > 0) {
+                try {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext
+                    const audioContext = new AudioCtx()
+                    const source = audioContext.createMediaStreamSource(stream)
+                    const analyser = audioContext.createAnalyser()
+                    analyser.fftSize = 256
+                    source.connect(analyser)
 
-                const bufferLength = analyser.frequencyBinCount
-                const dataArray = new Uint8Array(bufferLength)
+                    const bufferLength = analyser.frequencyBinCount
+                    const dataArray = new Uint8Array(bufferLength)
 
-                const checkLocalVol = () => {
-                    if (!localStreamRef.current || localStreamRef.current.getAudioTracks()[0]?.enabled === false) {
-                        setIsLocalSpeaking(false)
-                        return
+                    const checkLocalVol = () => {
+                        if (!localStreamRef.current || localStreamRef.current.getAudioTracks()[0]?.enabled === false) {
+                            setIsLocalSpeaking(false)
+                            return
+                        }
+                        analyser.getByteFrequencyData(dataArray)
+                        let sum = 0
+                        for (let i = 0; i < bufferLength; i++) {
+                            sum += dataArray[i]
+                        }
+                        const average = sum / bufferLength
+                        setIsLocalSpeaking(average > 25)
                     }
-                    analyser.getByteFrequencyData(dataArray)
-                    let sum = 0
-                    for (let i = 0; i < bufferLength; i++) {
-                        sum += dataArray[i]
-                    }
-                    const average = sum / bufferLength
-                    setIsLocalSpeaking(average > 25)
+                    localAudioIntervalRef.current = setInterval(checkLocalVol, 200)
+                } catch (err) {
+                    console.error("Local audio analyzer setup failure:", err)
                 }
-                localAudioIntervalRef.current = setInterval(checkLocalVol, 200)
-            } catch (err) {
-                console.error("Local audio analyzer setup failure:", err)
             }
 
             // Web Speech API initialization
@@ -862,7 +903,7 @@ ${decisions.length > 0
             socketRef.current = io(BASE_URL)
 
             socketRef.current.on('connect', () => {
-                socketRef.current.emit('join-call', code, resolvedName)
+                socketRef.current.emit('join-call', cleanCode, resolvedName)
             })
 
             // Verify room entry failures
@@ -871,7 +912,7 @@ ${decisions.length > 0
                 navigate('/dashboard')
             })
 
-            // When a user joins (direct overwrite fixes user count leaks)
+            // When a user joins
             socketRef.current.on('user-joined', async (newUserId, newUserName, usersList, hostId) => {
                 setHostSocketId(hostId)
                 const newParticipants = {}
@@ -884,11 +925,17 @@ ${decisions.length > 0
                 setParticipantStates(newStates)
 
                 if (newUserId !== socketRef.current.id) {
-                    createPeerConnection(newUserId, true) // isOfferer = true
-                    const peer = peersRef.current[newUserId]
-                    const offer = await peer.createOffer()
-                    await peer.setLocalDescription(offer)
-                    socketRef.current.emit('signal', newUserId, JSON.stringify({ sdp: peer.localDescription }))
+                    try {
+                        const peer = createPeerConnection(newUserId, true) // isOfferer = true
+                        const offer = await peer.createOffer({
+                            offerToReceiveAudio: true,
+                            offerToReceiveVideo: true
+                        })
+                        await peer.setLocalDescription(offer)
+                        socketRef.current.emit('signal', newUserId, JSON.stringify({ sdp: peer.localDescription }))
+                    } catch (offerErr) {
+                        console.error("Error creating WebRTC offer:", offerErr)
+                    }
                 }
             })
 
@@ -934,35 +981,42 @@ ${decisions.length > 0
 
             // Signal handler for WebRTC negotiations
             socketRef.current.on('signal', async (fromId, message) => {
-                const signalData = JSON.parse(message)
-                let peer = peersRef.current[fromId]
-                if (!peer) {
-                    peer = createPeerConnection(fromId, false)
-                }
+                try {
+                    const signalData = JSON.parse(message)
+                    let peer = peersRef.current[fromId]
+                    if (!peer) {
+                        peer = createPeerConnection(fromId, false)
+                    }
 
-                if (signalData.sdp) {
-                    await peer.setRemoteDescription(new RTCSessionDescription(signalData.sdp))
-                    if (signalData.sdp.type === 'offer') {
-                        const answer = await peer.createAnswer()
-                        await peer.setLocalDescription(answer)
-                        socketRef.current.emit('signal', fromId, JSON.stringify({ sdp: peer.localDescription }))
-                    }
-                    
-                    if (iceCandidatesQueue.current[fromId]) {
-                        for (const candidate of iceCandidatesQueue.current[fromId]) {
-                            await peer.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding queued ICE", e))
+                    if (signalData.sdp) {
+                        await peer.setRemoteDescription(new RTCSessionDescription(signalData.sdp))
+                        if (signalData.sdp.type === 'offer') {
+                            const answer = await peer.createAnswer({
+                                offerToReceiveAudio: true,
+                                offerToReceiveVideo: true
+                            })
+                            await peer.setLocalDescription(answer)
+                            socketRef.current.emit('signal', fromId, JSON.stringify({ sdp: peer.localDescription }))
                         }
-                        delete iceCandidatesQueue.current[fromId]
-                    }
-                } else if (signalData.ice) {
-                    if (peer.remoteDescription && peer.remoteDescription.type) {
-                        await peer.addIceCandidate(new RTCIceCandidate(signalData.ice)).catch(e => console.error("Error adding ICE", e))
-                    } else {
-                        if (!iceCandidatesQueue.current[fromId]) {
-                            iceCandidatesQueue.current[fromId] = []
+                        
+                        if (iceCandidatesQueue.current[fromId]) {
+                            for (const candidate of iceCandidatesQueue.current[fromId]) {
+                                await peer.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding queued ICE", e))
+                            }
+                            delete iceCandidatesQueue.current[fromId]
                         }
-                        iceCandidatesQueue.current[fromId].push(signalData.ice)
+                    } else if (signalData.ice) {
+                        if (peer.remoteDescription && peer.remoteDescription.type) {
+                            await peer.addIceCandidate(new RTCIceCandidate(signalData.ice)).catch(e => console.error("Error adding ICE", e))
+                        } else {
+                            if (!iceCandidatesQueue.current[fromId]) {
+                                iceCandidatesQueue.current[fromId] = []
+                            }
+                            iceCandidatesQueue.current[fromId].push(signalData.ice)
+                        }
                     }
+                } catch (sigErr) {
+                    console.error("Signal processing error:", sigErr)
                 }
             })
 
@@ -1211,7 +1265,7 @@ ${decisions.length > 0
                     </div>
                 ) : (
                     <div className={`video-grid ${getGridClass()}`}>
-                        {/* Local Feed using callback ref for mount cycle bindings */}
+                        {/* Local Feed */}
                         <div className={`video-box local-video-box ${isCameraOff ? 'camera-off' : ''} ${isLocalSpeaking ? 'speaking-border' : ''}`}>
                             {isCameraOff ? (
                                 <div className="video-placeholder">
@@ -1230,17 +1284,19 @@ ${decisions.length > 0
                             </div>
                         </div>
 
-                        {/* Remote Feeds using stable callback ref */}
-                        {Object.entries(remoteStreams).map(([userId, stream]) => (
-                            <RemoteVideo 
-                                key={userId} 
-                                stream={stream} 
-                                name={participants[userId]} 
-                                isCameraOff={participantStates[userId]?.isCameraOff}
-                                isMuted={participantStates[userId]?.isMuted}
-                                isSpeaking={remoteSpeakingStates[userId]}
-                            />
-                        ))}
+                        {/* Remote Feeds */}
+                        {Object.keys(participants)
+                            .filter(userId => userId !== socketRef.current?.id)
+                            .map((userId) => (
+                                <RemoteVideo 
+                                    key={userId} 
+                                    stream={remoteStreams[userId]} 
+                                    name={participants[userId]} 
+                                    isCameraOff={participantStates[userId]?.isCameraOff}
+                                    isMuted={participantStates[userId]?.isMuted}
+                                    isSpeaking={remoteSpeakingStates[userId]}
+                                />
+                            ))}
                     </div>
                 )}
 
@@ -1254,7 +1310,7 @@ ${decisions.length > 0
 
                 {reactionPopup && <div className="reaction-popup">{reactionPopup}</div>}
 
-                {/* Authentically Zoom-inspired Bottom Controls Bar (Matches Uploaded Image Spec) */}
+                {/* Authentically Zoom-inspired Bottom Controls Bar */}
                 <div className="zoom-controls-bar">
                     
                     {/* Audio & Camera Buttons (Dropdown styles) */}
@@ -1278,7 +1334,7 @@ ${decisions.length > 0
                         </button>
                     </div>
 
-                    {/* Central Ribbon Navigation items (Matches Zoom layout exactly) */}
+                    {/* Central Ribbon Navigation items */}
                     <div className="zoom-controls-group">
                         <button 
                             className="zoom-btn"
@@ -1594,6 +1650,7 @@ ${decisions.length > 0
                                             <option value="en-IN">English (India)</option>
                                         </select>
                                     </div>
+
                                     <button className="summary-dl-btn" onClick={downloadSummaryFile}>
                                         📥 Download .MD
                                     </button>
@@ -1601,6 +1658,7 @@ ${decisions.length > 0
                                 <p className="notes-description">
                                     Speech is transcribed and parsed automatically into tasks, summaries, and speaker diarization notes.
                                 </p>
+
                                 <div className="notes-divider"></div>
 
                                 {/* Live Summary Block */}

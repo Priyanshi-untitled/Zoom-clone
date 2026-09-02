@@ -42,51 +42,65 @@ export const connectToSocket = (server) => {
 
         socket.on("join-call", async (path, name) => {
             try {
-                // Extract clean 8-char code
-                const cleanCode = path.replace("/meeting/", "").split("/").pop();
-                const meetingExists = await Meeting.findOne({ meetingCode: cleanCode });
-                
-                if (!meetingExists) {
-                    socket.emit("join-error", "Invalid Meeting Room: Code does not exist.");
+                // Extract clean room code
+                const cleanCode = (path || "").toString().replace(/^\/meeting\//, "").split("/").pop().trim();
+                if (!cleanCode) {
+                    socket.emit("join-error", "Invalid room code.");
                     return;
                 }
 
-                if (connections[path] === undefined) {
-                    connections[path] = [];
+                // Ensure meeting exists or auto-register it
+                try {
+                    let meetingExists = await Meeting.findOne({ meetingCode: cleanCode });
+                    if (!meetingExists) {
+                        meetingExists = new Meeting({ user_id: "guest_or_direct", meetingCode: cleanCode });
+                        await meetingExists.save();
+                    }
+                } catch (dbErr) {
+                    console.warn("DB check warning:", dbErr.message);
                 }
-                connections[path].push(socket.id);
+
+                if (connections[cleanCode] === undefined) {
+                    connections[cleanCode] = [];
+                }
+
+                // Avoid duplicate socket ID in room
+                if (!connections[cleanCode].includes(socket.id)) {
+                    connections[cleanCode].push(socket.id);
+                }
+
                 socketNames[socket.id] = name || "Participant";
                 socketMutedStates[socket.id] = false;
                 socketCameraStates[socket.id] = false;
                 timeOnline[socket.id] = new Date();
 
                 // Emit to all users in room including the new user
-                const usersList = connections[path].map(id => ({
+                const usersList = connections[cleanCode].map(id => ({
                     id,
                     name: socketNames[id] || "Participant",
                     isMuted: socketMutedStates[id] || false,
                     isCameraOff: socketCameraStates[id] || false
                 }));
 
-                const hostId = connections[path][0];
-                connections[path].forEach((elem) => {
+                const hostId = connections[cleanCode][0];
+                connections[cleanCode].forEach((elem) => {
                     io.to(elem).emit("user-joined", socket.id, socketNames[socket.id], usersList, hostId);
                 });
 
                 // Replay chat messages
-                if (messages[path] !== undefined) {
-                    messages[path].forEach((msg) => {
+                if (messages[cleanCode] !== undefined) {
+                    messages[cleanCode].forEach((msg) => {
                         io.to(socket.id).emit("chat-message", msg.data, msg.sender, msg['socket-id-sender']);
                     });
                 }
 
                 // Sync active poll if it exists
-                if (activePolls[path] !== undefined) {
-                    io.to(socket.id).emit("poll-update", activePolls[path]);
+                if (activePolls[cleanCode] !== undefined) {
+                    io.to(socket.id).emit("poll-update", activePolls[cleanCode]);
                 }
             } catch (err) {
                 console.error("Socket join error:", err);
-                socket.emit("join-error", "Database validation failed.");
+                socket.emit("join-error", "Could not join meeting room.");
             }
         });
 
