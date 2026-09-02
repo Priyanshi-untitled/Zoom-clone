@@ -17,9 +17,10 @@ const peerConfig = {
     iceCandidatePoolSize: 10
 }
 
-// Polished Remote Video component using stable render tracker to prevent disappearing streams
+// Polished Remote Video component with dedicated persistent audio element to guarantee mic audio always plays
 function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
     const videoRef = useRef(null)
+    const audioRef = useRef(null)
 
     useEffect(() => {
         if (videoRef.current && stream && !isCameraOff) {
@@ -27,6 +28,12 @@ function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
                 videoRef.current.srcObject = stream
             }
             videoRef.current.play().catch(() => {})
+        }
+        if (audioRef.current && stream) {
+            if (audioRef.current.srcObject !== stream) {
+                audioRef.current.srcObject = stream
+            }
+            audioRef.current.play().catch(() => {})
         }
     }) // Runs on every render to ensure srcObject binding is persistent
 
@@ -36,7 +43,10 @@ function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
     }
 
     return (
-        <div className={`video-box ${isCameraOff || !stream ? 'camera-off' : ''} ${isSpeaking ? 'speaking-border' : ''}`}>
+        <div className={`video-box ${isCameraOff || !stream ? 'camera-off' : ''} ${isSpeaking && !isMuted ? 'speaking-border' : ''}`}>
+            {/* Dedicated hidden audio element to ensure remote mic audio ALWAYS plays seamlessly even when camera is off */}
+            <audio ref={audioRef} autoPlay playsInline />
+
             {isCameraOff || !stream ? (
                 <div className="video-placeholder">
                     <div className="avatar-circle">
@@ -44,11 +54,11 @@ function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
                     </div>
                 </div>
             ) : (
-                <video ref={videoRef} autoPlay playsInline></video>
+                <video ref={videoRef} autoPlay playsInline muted></video>
             )}
             <div className="video-label-row">
                 <span className="video-label">
-                    {name || "Participant"} {isSpeaking && <span className="speaking-indicator-dot">🎙️</span>}
+                    {name || "Participant"} {isSpeaking && !isMuted && <span className="speaking-indicator-dot">🎙️</span>}
                 </span>
                 {isMuted && <span className="mute-icon">Muted</span>}
             </div>
@@ -513,27 +523,50 @@ function Meeting() {
         return peer
     }
 
+    // Mobile browser audio unlocker for flawless WebRTC voice transmission
+    useEffect(() => {
+        const unlockAudio = () => {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext
+            if (AudioCtx) {
+                const ctx = new AudioCtx()
+                if (ctx.state === 'suspended') {
+                    ctx.resume().catch(() => {})
+                }
+            }
+        }
+        window.addEventListener('click', unlockAudio, { once: true })
+        window.addEventListener('touchstart', unlockAudio, { once: true })
+        return () => {
+            window.removeEventListener('click', unlockAudio)
+            window.removeEventListener('touchstart', unlockAudio)
+        }
+    }, [])
+
     // ---- Mute / Camera toggle ----
     const toggleMute = () => {
-        const audioTrack = localStreamRef.current?.getAudioTracks()[0]
-        if (audioTrack) {
-            audioTrack.enabled = !audioTrack.enabled
-            setIsMuted(!audioTrack.enabled)
-            socketRef.current?.emit('toggle-mute', !audioTrack.enabled)
-        }
+        const audioTracks = localStreamRef.current?.getAudioTracks() || []
+        if (audioTracks.length > 0) {
+            const currentEnabled = audioTracks[0].enabled
+            const newEnabled = !currentEnabled
+            audioTracks.forEach(track => {
+                track.enabled = newEnabled
+            })
+            setIsMuted(!newEnabled)
+            socketRef.current?.emit('toggle-mute', !newEnabled)
 
-        // Sync local Speech recognition with mute toggle
-        if (recognitionRef.current) {
-            if (audioTrack && audioTrack.enabled) {
-                try {
-                    recognitionRef.current.start()
-                } catch (e) {
-                    console.warn("Speech recognition already running:", e)
+            // Sync local Speech recognition with mute toggle
+            if (recognitionRef.current) {
+                if (newEnabled) {
+                    try {
+                        recognitionRef.current.start()
+                    } catch (e) {
+                        console.warn("Speech recognition already running:", e)
+                    }
+                } else {
+                    try {
+                        recognitionRef.current.stop()
+                    } catch (e) {}
                 }
-            } else {
-                try {
-                    recognitionRef.current.stop()
-                } catch (e) {}
             }
         }
     }
@@ -803,14 +836,24 @@ ${decisions.length > 0
             setDisplayName(resolvedName)
             sessionStorage.setItem("guestName", resolvedName)
 
-            // Setup audio/video media with graceful fallback
+            // Setup audio/video media with studio noise/echo cancellation constraints
+            const audioMediaConstraints = {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                channelCount: 1
+            }
+
             let stream = null
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, 
+                    audio: audioMediaConstraints 
+                })
             } catch (mediaErr) {
                 console.warn("Could not get both video and audio, trying audio only:", mediaErr)
                 try {
-                    stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: audioMediaConstraints })
                     setIsCameraOff(true)
                 } catch (audioErr) {
                     console.error("Could not get any media stream:", audioErr)
@@ -1129,12 +1172,22 @@ ${decisions.length > 0
 
             // Host remote overrides triggers (supports true/false parameters to allow toggles)
             socketRef.current.on('host-mute-all', (shouldMute) => {
-                const audioTrack = localStreamRef.current?.getAudioTracks()[0]
-                if (audioTrack) {
-                    audioTrack.enabled = !shouldMute
+                const audioTracks = localStreamRef.current?.getAudioTracks() || []
+                if (audioTracks.length > 0) {
+                    audioTracks.forEach(track => {
+                        track.enabled = !shouldMute
+                    })
                     setIsMuted(shouldMute)
                     socketRef.current?.emit('toggle-mute', shouldMute)
                     addNotification(shouldMute ? "You have been muted by the host." : "You have been unmuted by the host.", "info")
+
+                    if (recognitionRef.current) {
+                        if (!shouldMute) {
+                            try { recognitionRef.current.start() } catch (e) {}
+                        } else {
+                            try { recognitionRef.current.stop() } catch (e) {}
+                        }
+                    }
                 }
             })
 
