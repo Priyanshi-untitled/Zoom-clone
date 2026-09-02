@@ -181,24 +181,39 @@ function Meeting() {
         ctx.fillRect(0, 0, canvas.width, canvas.height)
     }, [showWhiteboard])
 
-    const startDrawing = (e) => {
+    const getCoordinates = (e) => {
         const canvas = canvasRef.current
-        if (!canvas) return
+        if (!canvas) return { x: 0, y: 0 }
         const rect = canvas.getBoundingClientRect()
-        const x = e.clientX - rect.left
-        const y = e.clientY - rect.top
-        
+        if (e.touches && e.touches.length > 0) {
+            return {
+                x: e.touches[0].clientX - rect.left,
+                y: e.touches[0].clientY - rect.top
+            }
+        }
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        }
+    }
+
+    const startDrawing = (e) => {
+        if (e.type === 'touchstart') {
+            e.preventDefault()
+        }
+        const { x, y } = getCoordinates(e)
         lastPosRef.current = { x, y }
         setIsDrawing(true)
     }
 
     const draw = (e) => {
         if (!isDrawing || !canvasRef.current) return
+        if (e.type === 'touchmove') {
+            e.preventDefault()
+        }
         const canvas = canvasRef.current
         const ctx = canvas.getContext('2d')
-        const rect = canvas.getBoundingClientRect()
-        const x = e.clientX - rect.left
-        const y = e.clientY - rect.top
+        const { x, y } = getCoordinates(e)
 
         const prevX = lastPosRef.current.x
         const prevY = lastPosRef.current.y
@@ -219,7 +234,10 @@ function Meeting() {
         lastPosRef.current = { x, y }
     }
 
-    const stopDrawing = () => {
+    const stopDrawing = (e) => {
+        if (e && e.type === 'touchend') {
+            e.preventDefault()
+        }
         setIsDrawing(false)
     }
 
@@ -1260,6 +1278,9 @@ ${decisions.length > 0
                                 onMouseMove={draw}
                                 onMouseUp={stopDrawing}
                                 onMouseLeave={stopDrawing}
+                                onTouchStart={startDrawing}
+                                onTouchMove={draw}
+                                onTouchEnd={stopDrawing}
                             />
                         </div>
                     </div>
