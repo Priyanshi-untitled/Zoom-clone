@@ -157,6 +157,35 @@ function Meeting() {
     // Speech Recognition Lang state (fixes Hindi/Hinglish speech note drops)
     const [transcriptionLang, setTranscriptionLang] = useState("en-US")
 
+    // Meeting Call Duration Timer
+    const [meetingDuration, setMeetingDuration] = useState(0)
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setMeetingDuration(prev => prev + 1)
+        }, 1000)
+        return () => clearInterval(timer)
+    }, [])
+
+    const formatDuration = (seconds) => {
+        const mins = Math.floor(seconds / 60)
+        const secs = seconds % 60
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+    }
+
+    const copyInviteLink = () => {
+        const inviteUrl = window.location.href
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(inviteUrl).then(() => {
+                addNotification(`Link copied to clipboard! (Room: ${code})`, "info")
+            }).catch(() => {
+                addNotification(`Room Code: ${code}`, "info")
+            })
+        } else {
+            addNotification(`Room Code: ${code}`, "info")
+        }
+    }
+
     // Zoom-inspired custom layout states
     const [showShareMenu, setShowShareMenu] = useState(false)
     const [showHostPopover, setShowHostPopover] = useState(false)
@@ -1343,6 +1372,25 @@ ${decisions.length > 0
             )}
 
             <div className="meeting-main-content">
+                {/* Sleek Authentically Zoom Top Header Bar */}
+                <div className="zoom-top-bar">
+                    <div className="top-bar-left">
+                        <span className="room-code-badge" onClick={copyInviteLink} title="Click to copy invite link">
+                            <span>Room: <strong>{code}</strong></span>
+                            <span className="copy-icon">📋</span>
+                        </span>
+                        <span className="encryption-badge">🔒 Encrypted</span>
+                    </div>
+                    <div className="top-bar-center">
+                        <span className="call-duration-tag">⏱️ {formatDuration(meetingDuration)}</span>
+                    </div>
+                    <div className="top-bar-right">
+                        <button className="invite-top-btn" onClick={copyInviteLink}>
+                            🔗 Copy Link
+                        </button>
+                    </div>
+                </div>
+
                 {/* Collaborative drawing canvas overlay */}
                 {showWhiteboard ? (
                     <div className="whiteboard-overlay-container">
@@ -1475,6 +1523,14 @@ ${decisions.length > 0
                         >
                             <span className="zoom-btn-icon">💬</span>
                             <span className="zoom-btn-label">Chat <span className="chevron-up">^</span></span>
+                        </button>
+
+                        <button 
+                            className={`zoom-btn ${showSidebar && sidebarTab === 'polls' ? 'active' : ''}`} 
+                            onClick={() => handleToggleSidebarTab('polls')}
+                        >
+                            <span className="zoom-btn-icon">📊</span>
+                            <span className="zoom-btn-label">Polls <span className="chevron-up">^</span></span>
                         </button>
 
                         {/* Reaction popup selector */}
