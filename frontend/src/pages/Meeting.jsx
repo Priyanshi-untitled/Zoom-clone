@@ -44,13 +44,16 @@ function RemoteVideo({ stream, name, isCameraOff, isMuted, isSpeaking }) {
             }
             videoRef.current.play().catch(() => {})
         }
+    }, [stream, isCameraOff])
+
+    useEffect(() => {
         if (audioRef.current && stream) {
             if (audioRef.current.srcObject !== stream) {
                 audioRef.current.srcObject = stream
             }
             audioRef.current.play().catch(() => {})
         }
-    }) // Runs on every render to ensure srcObject binding is persistent
+    }, [stream])
 
     const getInitials = (userName) => {
         if (!userName) return "?";
@@ -156,6 +159,11 @@ function Meeting() {
 
     // Speech Recognition Lang state (fixes Hindi/Hinglish speech note drops)
     const [transcriptionLang, setTranscriptionLang] = useState("en-US")
+    const [isAiRecording, setIsAiRecording] = useState(true)
+    const isAiRecordingRef = useRef(true)
+    const speechRestartTimeoutRef = useRef(null)
+    const localSpeechTimeoutRef = useRef(null)
+    const remoteSpeechTimeoutsRef = useRef({})
 
     // Meeting Call Duration Timer
     const [meetingDuration, setMeetingDuration] = useState(0)
@@ -184,6 +192,150 @@ function Meeting() {
         } else {
             addNotification(`Room Code: ${code}`, "info")
         }
+    }
+
+    // Toggle AI Speech Recording ON/OFF to give users full control and prevent mobile mic chime spam
+    const toggleAiRecording = () => {
+        const newState = !isAiRecording
+        setIsAiRecording(newState)
+        isAiRecordingRef.current = newState
+        if (newState) {
+            try {
+                recognitionRef.current?.start()
+                addNotification("AI Speech Transcription activated.", "info")
+            } catch (e) {}
+        } else {
+            if (speechRestartTimeoutRef.current) clearTimeout(speechRestartTimeoutRef.current)
+            try {
+                recognitionRef.current?.stop()
+                addNotification("AI Speech Transcription paused.", "info")
+            } catch (e) {}
+        }
+    }
+
+    // Comprehensive Executive Meeting Minutes & Summary Generator
+    const generateMeetingSummary = (logs, roomCode, durationSec) => {
+        if (!logs || logs.length === 0) {
+            return "No speech recorded yet. Speak in the meeting to generate real-time AI notes and executive summary."
+        }
+
+        const participantsList = Array.from(new Set(logs.map(l => l.name)))
+        const totalStatements = logs.length
+
+        // Group contributions by participant
+        const speakerMap = {}
+        participantsList.forEach(p => {
+            speakerMap[p] = logs.filter(l => l.name === p).map(l => l.text)
+        })
+
+        // Action keywords (English + Hindi/Hinglish)
+        const actionKeywords = [
+            "i will", "we need to", "make sure", "todo", "action", "task", "scheduled", "assign", 
+            "karna hai", "karunga", "karungi", "dekh lena", "send me", "share with", "follow up", 
+            "deadline", "tomorrow", "next week", "bhej dunga", "bhej dena", "check karo", "complete"
+        ]
+        const actionItems = []
+
+        // Decision keywords
+        const decisionKeywords = [
+            "decided", "agreed", "confirmed", "approved", "we should", "resolved", 
+            "theek hai", "done", "final", "pakka", "finalize", "chosen", "agreed on", "fix"
+        ]
+        const decisions = []
+
+        // Questions & key discussions
+        const questions = []
+        const keyHighlights = []
+
+        logs.forEach(log => {
+            const text = (log.text || "").trim()
+            const lower = text.toLowerCase()
+
+            if (text.endsWith('?') || lower.startsWith('kya') || lower.startsWith('kaise') || lower.startsWith('why') || lower.startsWith('how') || lower.startsWith('what')) {
+                if (!questions.some(q => q.includes(text))) {
+                    questions.push(`**${log.name}** asked: "${text}"`)
+                }
+            }
+
+            if (actionKeywords.some(kw => lower.includes(kw))) {
+                actionItems.push(`**${log.name}**: "${text}"`)
+            }
+
+            if (decisionKeywords.some(kw => lower.includes(kw))) {
+                decisions.push(`**${log.name}**: "${text}"`)
+            }
+
+            if (text.length > 15 && keyHighlights.length < 12) {
+                keyHighlights.push(`• **${log.name}**: "${text}"`)
+            }
+        })
+
+        let executiveNarrative = ""
+        if (participantsList.length > 1) {
+            executiveNarrative = `Collaborative multi-participant meeting between **${participantsList.join(' and ')}** spanning **${formatDuration(durationSec)}**. The participants actively discussed project updates, exchanged ideas, and aligned on key deliverables across **${totalStatements}** diarized speech statements.`
+        } else {
+            executiveNarrative = `Active briefing by **${participantsList[0] || "Participant"}** lasting **${formatDuration(durationSec)}** with **${totalStatements}** recorded speech statements documenting key agenda items and operational notes.`
+        }
+
+        return `
+# 📝 Executive Meeting Minutes & Summary
+**Meeting Code:** \`${roomCode}\`  
+**Date:** ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}  
+**Duration:** ${formatDuration(durationSec)}  
+**Participants:** ${participantsList.join(', ') || "None"}
+
+---
+
+## 📌 1. Executive Summary
+${executiveNarrative}
+
+---
+
+## 💡 2. Key Discussion Topics & Points
+${keyHighlights.length > 0 
+    ? keyHighlights.join('\n\n') 
+    : "Active participant discussion recorded."
+}
+
+---
+
+## 👥 3. Participant Contribution Breakdown
+${participantsList.map(p => {
+    const pLogs = speakerMap[p] || []
+    return `### 👤 ${p} (${pLogs.length} statements)
+${pLogs.slice(0, 5).map(t => `- "${t}"`).join('\n')}${pLogs.length > 5 ? `\n- *...and ${pLogs.length - 5} more statements*` : ''}`
+}).join('\n\n')}
+
+---
+
+## 🛠️ 4. Action Items & Next Steps
+${actionItems.length > 0 
+    ? actionItems.map(item => `- [ ] ${item}`).join('\n') 
+    : "- [ ] Follow up on discussed agenda items."
+}
+
+---
+
+## 🤝 5. Key Decisions & Agreements
+${decisions.length > 0 
+    ? decisions.map(dec => `- ✅ ${dec}`).join('\n') 
+    : "- Core consensus maintained across all discussion points."
+}
+
+${questions.length > 0 ? `
+---
+
+## ❓ 6. Questions & Inquiries Raised
+${questions.map(q => `- ${q}`).join('\n')}
+` : ''}
+
+---
+
+## 🗒️ 7. Full Chronological Transcript
+\`\`\`text
+${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
+\`\`\`
+`.trim()
     }
 
     // Zoom-inspired custom layout states
@@ -614,14 +766,13 @@ function Meeting() {
             socketRef.current?.emit('toggle-mute', !newEnabled)
 
             // Sync local Speech recognition with mute toggle
-            if (recognitionRef.current) {
+            if (recognitionRef.current && isAiRecordingRef.current) {
                 if (newEnabled) {
                     try {
                         recognitionRef.current.start()
-                    } catch (e) {
-                        console.warn("Speech recognition already running:", e)
-                    }
+                    } catch (e) {}
                 } else {
+                    if (speechRestartTimeoutRef.current) clearTimeout(speechRestartTimeoutRef.current)
                     try {
                         recognitionRef.current.stop()
                     } catch (e) {}
@@ -639,11 +790,18 @@ function Meeting() {
         }
     }
 
-    // ---- Screen Share ----
+    // ---- Screen Share (Enhanced for Desktop & Mobile) ----
     const toggleScreenShare = async () => {
         if (!isScreenSharing) {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                addNotification("Screen sharing is not supported by your current browser. Please use Chrome on Android or Desktop.", "info")
+                return
+            }
             try {
-                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({ 
+                    video: { cursor: "always" },
+                    audio: false
+                })
                 screenStreamRef.current = screenStream
                 const screenTrack = screenStream.getVideoTracks()[0]
 
@@ -656,12 +814,18 @@ function Meeting() {
                 setCurrentLocalStream(screenStream)
                 setIsScreenSharing(true)
                 isScreenSharingRef.current = true
+                addNotification("Screen sharing started successfully!", "info")
 
                 // When user clicks browser's built-in "Stop sharing" button
                 screenTrack.onended = () => stopScreenShare()
 
             } catch (err) {
-                console.log("Screen share error:", err)
+                console.warn("Screen share error:", err)
+                if (err.name === "NotAllowedError") {
+                    addNotification("Screen sharing cancelled or permission denied.", "info")
+                } else {
+                    addNotification("Screen sharing failed: " + (err.message || err.name), "info")
+                }
             }
         } else {
             stopScreenShare()
@@ -737,67 +901,13 @@ function Meeting() {
 
     // ---- AI Notes Real-time Compiler ----
     useEffect(() => {
-        if (transcriptLogs.length === 0) {
-            setSummaryText("No transcription logs recorded yet. Speak in the meeting to generate live notes!")
-            return
-        }
-
-        // Assemble full diarized logs
-        const fullTranscript = transcriptLogs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')
-
-        // Extract unique participant list
-        const speakers = Array.from(new Set(transcriptLogs.map(log => log.name)))
-        
-        // Semantic filters to parse decisions and actions in real-time
-        const actionKeywords = ["i will", "we need to", "make sure", "todo", "action", "task", "scheduled", "assign"]
-        const actionItems = []
-        const decisionKeywords = ["decided", "agreed", "confirmed", "approved", "we should", "resolved"]
-        const decisions = []
-
-        transcriptLogs.forEach(log => {
-            const lowerText = log.text.toLowerCase()
-            if (actionKeywords.some(keyword => lowerText.includes(keyword))) {
-                actionItems.push(`${log.name} committed to: "${log.text}"`)
-            }
-            if (decisionKeywords.some(keyword => lowerText.includes(keyword))) {
-                decisions.push(`Resolved: "${log.text}" (Suggested by ${log.name})`)
-            }
-        })
-
-        const summaryOutput = `
-# 📝 Live Meeting Notes
-**Room:** ${code}
-**Date:** ${new Date().toLocaleDateString()}
-**Participants:** ${speakers.join(', ') || "No active speakers"}
-
----
-
-## 📌 Executive Summary
-Active discussion containing **${transcriptLogs.length}** diarized speech statements.
-
----
-
-## 🛠️ Action Items & Checklists
-${actionItems.length > 0 
-    ? actionItems.map(item => `- [ ] ${item}`).join('\n') 
-    : "- Speak/assign tasks (e.g. 'I will finish...') to auto-log action items."
-}
-
----
-
-## 🤝 Key Decisions Made
-${decisions.length > 0 
-    ? decisions.map(dec => `- ${dec}`).join('\n') 
-    : "- Say statements like 'We decided...' or 'Confirmed...' to auto-log decisions."
-}
-        `.trim()
-
-        setSummaryText(summaryOutput)
-    }, [transcriptLogs, code])
+        setSummaryText(generateMeetingSummary(transcriptLogs, code, meetingDuration))
+    }, [transcriptLogs, code, meetingDuration])
 
     const downloadSummaryFile = () => {
+        const fullMarkdownReport = generateMeetingSummary(transcriptLogs, code, meetingDuration)
         const element = document.createElement("a")
-        const file = new Blob([summaryText + `\n\n---\n\n## 🗒️ Complete Chronological Transcript Logs\n\`\`\`text\n` + transcriptLogs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n') + `\n\`\`\``], { type: 'text/plain' })
+        const file = new Blob([fullMarkdownReport], { type: 'text/markdown;charset=utf-8' })
         element.href = URL.createObjectURL(file)
         element.download = `Meeting_Summary_${code}.md`
         document.body.appendChild(element)
@@ -989,30 +1099,49 @@ ${decisions.length > 0
                         }
                     }
 
-                    const activeText = finalText || interimText
-                    if (activeText.trim()) {
+                    const activeText = (finalText || interimText).trim()
+                    if (activeText) {
                         socketRef.current?.emit('user-speech', activeText, finalText !== '')
                         setActiveSubtitles({ sender: "You", text: activeText })
 
                         if (finalText !== '') {
+                            if (localSpeechTimeoutRef.current) clearTimeout(localSpeechTimeoutRef.current)
                             setTranscriptLogs(prev => [...prev, {
                                 name: "You",
-                                text: finalText,
+                                text: finalText.trim(),
                                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                             }])
                             setTimeout(() => {
                                 setActiveSubtitles(prev => (prev && prev.sender === "You" ? null : prev))
                             }, 3000)
+                        } else {
+                            // Mobile Android debounce fallback: commit text after 1.5s silence if isFinal is never emitted
+                            if (localSpeechTimeoutRef.current) clearTimeout(localSpeechTimeoutRef.current)
+                            localSpeechTimeoutRef.current = setTimeout(() => {
+                                setTranscriptLogs(prev => [...prev, {
+                                    name: "You",
+                                    text: activeText,
+                                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                }])
+                                socketRef.current?.emit('user-speech', activeText, true)
+                                setActiveSubtitles(prev => (prev && prev.sender === "You" ? null : prev))
+                            }, 1500)
                         }
                     }
                 }
 
                 rec.onend = () => {
+                    if (!isAiRecordingRef.current) return
                     const currentMuted = !localStreamRef.current?.getAudioTracks()[0]?.enabled
                     if (localStreamRef.current && !currentMuted) {
-                        try {
-                            rec.start()
-                        } catch (e) {}
+                        if (speechRestartTimeoutRef.current) clearTimeout(speechRestartTimeoutRef.current)
+                        speechRestartTimeoutRef.current = setTimeout(() => {
+                            if (isAiRecordingRef.current && recognitionRef.current) {
+                                try {
+                                    recognitionRef.current.start()
+                                } catch (e) {}
+                            }
+                        }, 1500)
                     }
                 }
 
@@ -1206,21 +1335,40 @@ ${decisions.length > 0
                 }
             })
 
-            // Speech transcription broadcast receiver
+            // Speech transcription broadcast receiver (Captures speech from all participants)
             socketRef.current.on('user-speech', (speechData) => {
-                const { name, text, isFinal } = speechData
-                setActiveSubtitles({ sender: name, text })
+                const { senderId, name, text, isFinal } = speechData
+                const senderName = name || "Participant"
+                const activeId = senderId || senderName
+                setActiveSubtitles({ sender: senderName, text })
 
-                if (isFinal) {
+                const commitRemote = (phrase) => {
+                    if (!phrase || !phrase.trim()) return
                     setTranscriptLogs(prev => [...prev, {
-                        name,
-                        text,
+                        name: senderName,
+                        text: phrase.trim(),
                         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     }])
-
                     setTimeout(() => {
-                        setActiveSubtitles(prev => (prev && prev.sender === name ? null : prev))
+                        setActiveSubtitles(prev => (prev && prev.sender === senderName ? null : prev))
                     }, 3000)
+                }
+
+                if (isFinal) {
+                    if (remoteSpeechTimeoutsRef.current[activeId]) {
+                        clearTimeout(remoteSpeechTimeoutsRef.current[activeId])
+                        delete remoteSpeechTimeoutsRef.current[activeId]
+                    }
+                    commitRemote(text)
+                } else {
+                    // Mobile Android fallback: commit remote interim speech if no new text arrives within 1.5s
+                    if (remoteSpeechTimeoutsRef.current[activeId]) {
+                        clearTimeout(remoteSpeechTimeoutsRef.current[activeId])
+                    }
+                    remoteSpeechTimeoutsRef.current[activeId] = setTimeout(() => {
+                        commitRemote(text)
+                        delete remoteSpeechTimeoutsRef.current[activeId]
+                    }, 1500)
                 }
             })
 
@@ -1819,6 +1967,15 @@ ${decisions.length > 0
                                 <div className="notes-header-row">
                                     <h4>AI Meeting Minutes</h4>
                                     
+                                    {/* AI Recording Pause/Resume Button */}
+                                    <button 
+                                        className={`ai-record-toggle-btn ${isAiRecording ? 'active' : ''}`}
+                                        onClick={toggleAiRecording}
+                                        title="Toggle AI Speech Transcription"
+                                    >
+                                        {isAiRecording ? "🎙️ Active" : "⏸️ Paused"}
+                                    </button>
+
                                     {/* Transcription Language Selector Dropdown (resolves Hindi/Hinglish transcription drops) */}
                                     <div className="transcription-lang-selector">
                                         <select 
