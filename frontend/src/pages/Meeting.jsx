@@ -157,13 +157,129 @@ function Meeting() {
     const [summaryText, setSummaryText] = useState("")
     const recognitionRef = useRef(null)
 
-    // Speech Recognition Lang state (fixes Hindi/Hinglish speech note drops)
-    const [transcriptionLang, setTranscriptionLang] = useState("en-US")
+    // Speech Recognition Lang state (Defaults to Indian English / Hinglish for high accuracy)
+    const [transcriptionLang, setTranscriptionLang] = useState("en-IN")
     const [isAiRecording, setIsAiRecording] = useState(true)
     const isAiRecordingRef = useRef(true)
     const speechRestartTimeoutRef = useRef(null)
     const localSpeechTimeoutRef = useRef(null)
     const remoteSpeechTimeoutsRef = useRef({})
+
+    // Mid-Meeting Name Change state
+    const [isEditingName, setIsEditingName] = useState(false)
+    const [newNameInput, setNewNameInput] = useState("")
+
+    // Anti-Hallucination and Deduplication Speech Cache
+    const lastSpeechTextRef = useRef("")
+    const lastSpeechSenderRef = useRef("")
+    const lastSpeechTimeRef = useRef(0)
+
+    // Filter out common Google Web Speech API phantom silence hallucinations
+    const HALLUCINATION_PHRASES = [
+        "thank you for watching",
+        "subtitles by",
+        "amara.org",
+        "please subscribe",
+        "thank you.",
+        "thanks for watching",
+        "watching",
+        "subscribe"
+    ]
+
+    // Synchronize recognition engine language dynamically when user changes dropdown
+    useEffect(() => {
+        if (recognitionRef.current) {
+            try {
+                recognitionRef.current.lang = transcriptionLang
+            } catch (e) {
+                console.warn("Could not dynamically change recognition language:", e)
+            }
+        }
+    }, [transcriptionLang])
+
+    // Clean, accurate, deduplicated speech committing engine
+    const cleanAndCommitSpeech = (sender, rawText) => {
+        if (!rawText) return
+        const text = rawText.trim()
+        
+        // 1. Ignore tiny noise clicks and short phonemes
+        if (text.length < 3) return
+        
+        // 2. Filter out known silence hallucinations
+        const lower = text.toLowerCase()
+        if (HALLUCINATION_PHRASES.some(phrase => lower.includes(phrase))) {
+            return
+        }
+
+        const now = Date.now()
+        const lastText = lastSpeechTextRef.current
+        const lastSender = lastSpeechSenderRef.current
+        const elapsed = now - lastSpeechTimeRef.current
+
+        // 3. Exact duplicate or redundant suffix prevention
+        if (lastSender === sender && (lastText === text || lastText.endsWith(text))) {
+            return
+        }
+
+        // 4. In-place progressive update if sentence is an active continuation of previous clause
+        if (lastSender === sender && elapsed < 3500 && text.startsWith(lastText) && text.length > lastText.length) {
+            setTranscriptLogs(prev => {
+                if (prev.length === 0) return prev
+                const updated = [...prev]
+                updated[updated.length - 1] = {
+                    ...updated[updated.length - 1],
+                    text: text
+                }
+                return updated
+            })
+            lastSpeechTextRef.current = text
+            lastSpeechTimeRef.current = now
+            return
+        }
+
+        // 5. Commit clean new speech entry
+        lastSpeechTextRef.current = text
+        lastSpeechSenderRef.current = sender
+        lastSpeechTimeRef.current = now
+
+        setTranscriptLogs(prev => [...prev, {
+            name: sender,
+            text: text,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }])
+
+        setTimeout(() => {
+            setActiveSubtitles(prev => (prev && prev.sender === sender ? null : prev))
+        }, 3500)
+    }
+
+    const clearTranscriptLogs = () => {
+        setTranscriptLogs([])
+        lastSpeechTextRef.current = ""
+        addNotification("AI transcript logs cleared.", "info")
+    }
+
+    // Mid-Meeting Name Change submit
+    const submitNameChange = () => {
+        const trimmed = (newNameInput || "").trim()
+        if (!trimmed || trimmed === displayName) {
+            setIsEditingName(false)
+            return
+        }
+        setDisplayName(trimmed)
+        sessionStorage.setItem("guestName", trimmed)
+        socketRef.current?.emit('change-name', trimmed)
+        setIsEditingName(false)
+        addNotification(`Your name was updated to "${trimmed}".`, "info")
+    }
+
+    // Host Transfer Handler
+    const handleMakeHost = (targetUserId, targetUserName) => {
+        if (window.confirm(`Transfer meeting host controls to ${targetUserName}?`)) {
+            socketRef.current?.emit('make-host', targetUserId)
+            addNotification(`Transferring host permissions to ${targetUserName}...`, "info")
+        }
+    }
 
     // Meeting Call Duration Timer
     const [meetingDuration, setMeetingDuration] = useState(0)
@@ -1128,31 +1244,19 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                     }
 
                     const activeText = (finalText || interimText).trim()
-                    if (activeText) {
+                    if (activeText && activeText.length >= 3) {
                         socketRef.current?.emit('user-speech', activeText, finalText !== '')
                         setActiveSubtitles({ sender: "You", text: activeText })
 
                         if (finalText !== '') {
                             if (localSpeechTimeoutRef.current) clearTimeout(localSpeechTimeoutRef.current)
-                            setTranscriptLogs(prev => [...prev, {
-                                name: "You",
-                                text: finalText.trim(),
-                                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                            }])
-                            setTimeout(() => {
-                                setActiveSubtitles(prev => (prev && prev.sender === "You" ? null : prev))
-                            }, 3000)
+                            cleanAndCommitSpeech("You", finalText)
                         } else {
                             // Mobile Android debounce fallback: commit text after 1.5s silence if isFinal is never emitted
                             if (localSpeechTimeoutRef.current) clearTimeout(localSpeechTimeoutRef.current)
                             localSpeechTimeoutRef.current = setTimeout(() => {
-                                setTranscriptLogs(prev => [...prev, {
-                                    name: "You",
-                                    text: activeText,
-                                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                }])
+                                cleanAndCommitSpeech("You", activeText)
                                 socketRef.current?.emit('user-speech', activeText, true)
-                                setActiveSubtitles(prev => (prev && prev.sender === "You" ? null : prev))
                             }, 1500)
                         }
                     }
@@ -1379,36 +1483,48 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                 const { senderId, name, text, isFinal } = speechData
                 const senderName = name || "Participant"
                 const activeId = senderId || senderName
-                setActiveSubtitles({ sender: senderName, text })
-
-                const commitRemote = (phrase) => {
-                    if (!phrase || !phrase.trim()) return
-                    setTranscriptLogs(prev => [...prev, {
-                        name: senderName,
-                        text: phrase.trim(),
-                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    }])
-                    setTimeout(() => {
-                        setActiveSubtitles(prev => (prev && prev.sender === senderName ? null : prev))
-                    }, 3000)
-                }
+                if (!text || text.trim().length < 3) return
+                setActiveSubtitles({ sender: senderName, text: text.trim() })
 
                 if (isFinal) {
                     if (remoteSpeechTimeoutsRef.current[activeId]) {
                         clearTimeout(remoteSpeechTimeoutsRef.current[activeId])
                         delete remoteSpeechTimeoutsRef.current[activeId]
                     }
-                    commitRemote(text)
+                    cleanAndCommitSpeech(senderName, text)
                 } else {
                     // Mobile Android fallback: commit remote interim speech if no new text arrives within 1.5s
                     if (remoteSpeechTimeoutsRef.current[activeId]) {
                         clearTimeout(remoteSpeechTimeoutsRef.current[activeId])
                     }
                     remoteSpeechTimeoutsRef.current[activeId] = setTimeout(() => {
-                        commitRemote(text)
+                        cleanAndCommitSpeech(senderName, text)
                         delete remoteSpeechTimeoutsRef.current[activeId]
                     }, 1500)
                 }
+            })
+
+            // Host Transfer Listener (Make Host)
+            socketRef.current.on('host-changed', (newHostId, newHostName) => {
+                setHostSocketId(newHostId)
+                const myId = socketRef.current?.id
+                const isNowHost = (newHostId === myId)
+                setIsHost(isNowHost)
+                if (isNowHost) {
+                    addNotification("You are now the meeting host! You have full host security controls.", "info")
+                } else {
+                    addNotification(`${newHostName} is now the meeting host.`, "info")
+                }
+            })
+
+            // Mid-Meeting Name Change Listener
+            socketRef.current.on('user-name-changed', (userId, newName, oldName) => {
+                setParticipants(prev => ({
+                    ...prev,
+                    [userId]: newName
+                }))
+                setWhiteboardSharer(prev => (prev && prev.id === userId ? { ...prev, name: newName } : prev))
+                addNotification(`${oldName} changed their name to "${newName}".`, "info")
             })
 
             // Collaborative Whiteboard Listeners
@@ -1926,11 +2042,34 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                                                 {getInitials(displayName)}
                                             </div>
                                             <div className="participant-info">
-                                                <div className="participant-name-row">
-                                                    <span className="participant-name">{displayName}</span>
-                                                    <span className="participant-badge-you">(Me)</span>
-                                                    {isHost && <span className="participant-badge-host">Host</span>}
-                                                </div>
+                                                {isEditingName ? (
+                                                    <div className="rename-inline-row">
+                                                        <input 
+                                                            type="text" 
+                                                            value={newNameInput} 
+                                                            onChange={(e) => setNewNameInput(e.target.value)}
+                                                            onKeyDown={(e) => e.key === 'Enter' && submitNameChange()}
+                                                            placeholder="New name..."
+                                                            className="rename-input"
+                                                            autoFocus
+                                                        />
+                                                        <button className="rename-action-btn save" onClick={submitNameChange}>✓ Save</button>
+                                                        <button className="rename-action-btn cancel" onClick={() => setIsEditingName(false)}>✕</button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="participant-name-row">
+                                                        <span className="participant-name">{displayName}</span>
+                                                        <span className="participant-badge-you">(Me)</span>
+                                                        {isHost && <span className="participant-badge-host">Host</span>}
+                                                        <button 
+                                                            className="rename-trigger-btn" 
+                                                            onClick={() => { setNewNameInput(displayName); setIsEditingName(true); }}
+                                                            title="Change your display name mid-meeting"
+                                                        >
+                                                            ✏️ Rename
+                                                        </button>
+                                                    </div>
+                                                )}
                                                 <span className="participant-status-text">
                                                     {isLocalSpeaking ? "🎙️ Speaking..." : (isMuted ? "Mic Muted" : "Active")}
                                                 </span>
@@ -1995,18 +2134,27 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                                                             {isRemoteCamOff ? "🎥❌" : "🎥"}
                                                         </span>
 
-                                                        {/* Quick Host Mute Control */}
+                                                        {/* Quick Host Controls (Mute & Make Host) */}
                                                         {isHost && (
-                                                            <button 
-                                                                className="quick-host-btn" 
-                                                                onClick={() => {
-                                                                    socketRef.current?.emit('host-mute-user', userId, !isRemoteMuted)
-                                                                    addNotification(`Requested ${isRemoteMuted ? "unmute" : "mute"} for ${name}.`, "info")
-                                                                }}
-                                                                title={isRemoteMuted ? `Ask ${name} to unmute` : `Mute ${name}`}
-                                                            >
-                                                                {isRemoteMuted ? "Unmute" : "Mute"}
-                                                            </button>
+                                                            <div className="host-actions-inline">
+                                                                <button 
+                                                                    className="make-host-btn" 
+                                                                    onClick={() => handleMakeHost(userId, name)}
+                                                                    title={`Make ${name} the meeting host`}
+                                                                >
+                                                                    👑 Make Host
+                                                                </button>
+                                                                <button 
+                                                                    className="quick-host-btn" 
+                                                                    onClick={() => {
+                                                                        socketRef.current?.emit('host-mute-user', userId, !isRemoteMuted)
+                                                                        addNotification(`Requested ${isRemoteMuted ? "unmute" : "mute"} for ${name}.`, "info")
+                                                                    }}
+                                                                    title={isRemoteMuted ? `Ask ${name} to unmute` : `Mute ${name}`}
+                                                                >
+                                                                    {isRemoteMuted ? "Unmute" : "Mute"}
+                                                                </button>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>
@@ -2222,13 +2370,18 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                                             onChange={(e) => setTranscriptionLang(e.target.value)}
                                             title="Speech Recognition Language"
                                         >
-                                            <option value="en-US">English (US)</option>
-                                            <option value="hi-IN">Hindi (India)</option>
-                                            <option value="en-IN">English (India)</option>
+                                            <option value="en-IN">🇮🇳 English (India / Hinglish)</option>
+                                            <option value="hi-IN">🇮🇳 हिन्दी (Hindi)</option>
+                                            <option value="en-US">🇺🇸 English (US)</option>
+                                            <option value="en-GB">🇬🇧 English (UK)</option>
                                         </select>
                                     </div>
 
-                                    <button className="summary-dl-btn" onClick={downloadSummaryFile}>
+                                    <button className="notes-clear-btn" onClick={clearTranscriptLogs} title="Clear inaccurate speech notes">
+                                        🧹 Clear
+                                    </button>
+
+                                    <button className="summary-dl-btn" onClick={downloadSummaryFile} title="Download structured markdown report">
                                         📥 Download .MD
                                     </button>
                                 </div>

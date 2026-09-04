@@ -287,6 +287,36 @@ export const connectToSocket = (server) => {
             }
         });
 
+        // Host transfer capability
+        socket.on("make-host", (targetUserId) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            if (matchingRoom && connections[matchingRoom]) {
+                const targetIndex = connections[matchingRoom].indexOf(targetUserId);
+                if (targetIndex !== -1) {
+                    // Place new host at index 0
+                    connections[matchingRoom].splice(targetIndex, 1);
+                    connections[matchingRoom].unshift(targetUserId);
+                    const newHostName = socketNames[targetUserId] || "Participant";
+                    connections[matchingRoom].forEach((elem) => {
+                        io.to(elem).emit("host-changed", targetUserId, newHostName);
+                    });
+                }
+            }
+        });
+
+        // Mid-meeting name change
+        socket.on("change-name", (newName) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            const trimmed = (newName || "").trim();
+            if (matchingRoom && trimmed) {
+                const oldName = socketNames[socket.id] || "Participant";
+                socketNames[socket.id] = trimmed;
+                connections[matchingRoom].forEach((elem) => {
+                    io.to(elem).emit("user-name-changed", socket.id, trimmed, oldName);
+                });
+            }
+        });
+
         socket.on("disconnect", () => {
             const matchingRoom = findRoomOfSocket(socket.id);
             if (matchingRoom) {
