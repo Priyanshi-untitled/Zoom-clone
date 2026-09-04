@@ -236,15 +236,32 @@ export const connectToSocket = (server) => {
             }
         });
 
-        socket.on("whiteboard-start", () => {
+        socket.on("whiteboard-start", (sharerName) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            if (matchingRoom) {
+                const name = sharerName || socketNames[socket.id] || "Participant";
+                connections[matchingRoom].forEach((elem) => {
+                    if (elem !== socket.id) {
+                        io.to(elem).emit("whiteboard-start", socket.id, name);
+                    }
+                });
+            }
+        });
+
+        socket.on("whiteboard-stop", () => {
             const matchingRoom = findRoomOfSocket(socket.id);
             if (matchingRoom) {
                 connections[matchingRoom].forEach((elem) => {
                     if (elem !== socket.id) {
-                        io.to(elem).emit("whiteboard-start");
+                        io.to(elem).emit("whiteboard-stop", socket.id);
                     }
                 });
             }
+        });
+
+        // Host individual participant mute
+        socket.on("host-mute-user", (targetUserId, shouldMute) => {
+            io.to(targetUserId).emit("host-mute-all", shouldMute);
         });
 
         // Host security command signals
@@ -286,6 +303,7 @@ export const connectToSocket = (server) => {
                 connections[matchingRoom].forEach(elem => {
                     if (elem !== socket.id) {
                         io.to(elem).emit("user-left", socket.id, hostId);
+                        io.to(elem).emit("whiteboard-stop", socket.id);
                     }
                 });
 

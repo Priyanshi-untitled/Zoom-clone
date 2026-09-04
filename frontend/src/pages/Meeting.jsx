@@ -348,6 +348,26 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
     const [hostSocketId, setHostSocketId] = useState(null)
     const [isHost, setIsHost] = useState(true)
 
+    // Collaborative whiteboard sharing ownership
+    const [whiteboardSharer, setWhiteboardSharer] = useState(null) // { id, name }
+
+    // Whiteboard presenter actions (Restricts stop/close access to the sharer)
+    const startWhiteboard = () => {
+        setShowWhiteboard(true)
+        setWhiteboardSharer({ id: socketRef.current?.id, name: displayName })
+        socketRef.current?.emit('whiteboard-start', displayName)
+        addNotification("You started the collaborative whiteboard.", "info")
+        setShowShareMenu(false)
+    }
+
+    const stopWhiteboard = () => {
+        setShowWhiteboard(false)
+        setWhiteboardSharer(null)
+        socketRef.current?.emit('whiteboard-stop')
+        addNotification("You closed the whiteboard.", "info")
+        setShowShareMenu(false)
+    }
+
     // Helper to dismiss all floating dropdowns/popovers on backdrop click
     const closeAllPopovers = () => {
         setShowShareMenu(false)
@@ -1412,9 +1432,16 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                 ctx.fillRect(0, 0, canvas.width, canvas.height)
             })
 
-            socketRef.current.on('whiteboard-start', () => {
+            socketRef.current.on('whiteboard-start', (sharerId, sharerName) => {
                 setShowWhiteboard(true)
-                addNotification("Collaborative whiteboard started by host.", "info")
+                setWhiteboardSharer({ id: sharerId, name: sharerName })
+                addNotification(`${sharerName || "A participant"} started the collaborative whiteboard.`, "info")
+            })
+
+            socketRef.current.on('whiteboard-stop', () => {
+                setShowWhiteboard(false)
+                setWhiteboardSharer(null)
+                addNotification("The collaborative whiteboard was closed by the presenter.", "info")
             })
 
             // Host remote overrides triggers (supports true/false parameters to allow toggles)
@@ -1562,7 +1589,9 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                 {showWhiteboard ? (
                     <div className="whiteboard-overlay-container">
                         <div className="whiteboard-header">
-                            <span className="board-title">✏️ Collaborative Whiteboard</span>
+                            <span className="board-title">
+                                ✏️ Collaborative Whiteboard {(!whiteboardSharer?.id || whiteboardSharer?.id === socketRef.current?.id) ? "(You are presenting)" : `(Shared by ${whiteboardSharer?.name || "Presenter"})`}
+                            </span>
                             
                             <div className="whiteboard-tool-bar">
                                 <button className={`tool-btn ${!isEraser ? 'active' : ''}`} onClick={() => setIsEraser(false)}>✏️ Pen</button>
@@ -1586,8 +1615,18 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                             </div>
 
                             <div className="whiteboard-actions">
-                                <button className="clear-btn" onClick={clearCanvas}>Clear Board</button>
-                                <button className="close-btn" onClick={() => setShowWhiteboard(false)}>✕ Close</button>
+                                {(!whiteboardSharer?.id || whiteboardSharer?.id === socketRef.current?.id || isHost) && (
+                                    <button className="clear-btn" onClick={clearCanvas}>Clear Board</button>
+                                )}
+                                {(!whiteboardSharer?.id || whiteboardSharer?.id === socketRef.current?.id || isHost) ? (
+                                    <button className="close-btn stop-board-btn" onClick={stopWhiteboard} title="End whiteboard session for all participants">
+                                        🛑 Stop Sharing Board
+                                    </button>
+                                ) : (
+                                    <button className="close-btn minimize-btn" onClick={() => setShowWhiteboard(false)} title="Hide whiteboard locally">
+                                        ✕ Hide Board
+                                    </button>
+                                )}
                             </div>
                         </div>
                         <div className="canvas-wrapper">
@@ -1679,9 +1718,9 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                             <span className="popover-icon">🖥️</span>
                             <span>{isScreenSharing ? "Stop Sharing Screen" : "Share Screen"}</span>
                         </button>
-                        <button onClick={() => { setShowWhiteboard(true); socketRef.current?.emit('whiteboard-start'); setShowShareMenu(false); }}>
+                        <button onClick={showWhiteboard ? stopWhiteboard : startWhiteboard}>
                             <span className="popover-icon">📋</span>
-                            <span>Collaborative Whiteboard</span>
+                            <span>{showWhiteboard ? "Stop Sharing Whiteboard" : "Collaborative Whiteboard"}</span>
                         </button>
                     </div>
                 )}
@@ -1736,8 +1775,9 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                     {/* Central Ribbon Navigation items */}
                     <div className="zoom-controls-group">
                         <button 
-                            className="zoom-btn"
-                            onClick={() => addNotification(`Total Participants: ${Object.keys(participants).length || 1}`, "info")}
+                            className={`zoom-btn ${showSidebar && sidebarTab === 'participants' ? 'active' : ''}`}
+                            onClick={() => handleToggleSidebarTab('participants')}
+                            title="Meeting Participants"
                         >
                             <span className="zoom-btn-icon">👥<span className="count-badge">{Object.keys(participants).length || 1}</span></span>
                             <span className="zoom-btn-label">Participants <span className="chevron-up">^</span></span>
@@ -1827,21 +1867,21 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                 </div>
             </div>
 
-            {/* Sidebar Tabbed Panel (Chat + Files + Polls + AI Notes) */}
+            {/* Sidebar Tabbed Panel (Participants + Chat + Files + Polls + AI Notes) */}
             {showSidebar && (
                 <div className="sidebar-panel">
                     <div className="sidebar-tabs">
+                        <button 
+                            className={`tab-btn ${sidebarTab === 'participants' ? 'active' : ''}`}
+                            onClick={() => setSidebarTab('participants')}
+                        >
+                            👥 ({Object.keys(participants).length || 1})
+                        </button>
                         <button 
                             className={`tab-btn ${sidebarTab === 'chat' ? 'active' : ''}`}
                             onClick={() => setSidebarTab('chat')}
                         >
                             Chat
-                        </button>
-                        <button 
-                            className={`tab-btn ${sidebarTab === 'files' ? 'active' : ''}`}
-                            onClick={() => setSidebarTab('files')}
-                        >
-                            Files
                         </button>
                         <button 
                             className={`tab-btn ${sidebarTab === 'polls' ? 'active' : ''}`}
@@ -1855,10 +1895,144 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                         >
                             AI Notes
                         </button>
+                        <button 
+                            className={`tab-btn ${sidebarTab === 'files' ? 'active' : ''}`}
+                            onClick={() => setSidebarTab('files')}
+                        >
+                            Files
+                        </button>
                         <button className="close-sidebar-btn" onClick={() => setShowSidebar(false)}>✕</button>
                     </div>
 
                     <div className="sidebar-tab-content">
+                        {/* 1. Full Line-by-Line Zoom-Style Participants List */}
+                        {sidebarTab === 'participants' && (
+                            <div className="participants-tab-panel">
+                                <div className="participants-header">
+                                    <div className="participants-title-row">
+                                        <h4>In-Meeting ({Object.keys(participants).length || 1})</h4>
+                                        <button className="copy-invite-pill-btn" onClick={copyInviteLink} title="Copy invite link">
+                                            🔗 Copy Link
+                                        </button>
+                                    </div>
+                                    <p className="participants-subtext">Active participants currently in this meeting room</p>
+                                </div>
+
+                                <div className="participants-scroll-list">
+                                    {/* Local User (You) Card */}
+                                    <div className="participant-card local-card">
+                                        <div className="participant-card-left">
+                                            <div className="participant-avatar local-avatar">
+                                                {getInitials(displayName)}
+                                            </div>
+                                            <div className="participant-info">
+                                                <div className="participant-name-row">
+                                                    <span className="participant-name">{displayName}</span>
+                                                    <span className="participant-badge-you">(Me)</span>
+                                                    {isHost && <span className="participant-badge-host">Host</span>}
+                                                </div>
+                                                <span className="participant-status-text">
+                                                    {isLocalSpeaking ? "🎙️ Speaking..." : (isMuted ? "Mic Muted" : "Active")}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="participant-card-right">
+                                            <button 
+                                                className={`status-indicator-btn ${isMuted ? 'muted' : 'active'}`}
+                                                onClick={toggleMute}
+                                                title={isMuted ? "Unmute My Mic" : "Mute My Mic"}
+                                            >
+                                                {isMuted ? "🎙️❌" : "🎙️"}
+                                            </button>
+                                            <button 
+                                                className={`status-indicator-btn ${isCameraOff ? 'off' : 'active'}`}
+                                                onClick={toggleCamera}
+                                                title={isCameraOff ? "Turn On Camera" : "Turn Off Camera"}
+                                            >
+                                                {isCameraOff ? "🎥❌" : "🎥"}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Remote Participants (Line by line) */}
+                                    {Object.keys(participants)
+                                        .filter(userId => userId !== socketRef.current?.id)
+                                        .map((userId) => {
+                                            const name = participants[userId] || "Participant"
+                                            const state = participantStates[userId] || {}
+                                            const isRemoteMuted = state.isMuted
+                                            const isRemoteCamOff = state.isCameraOff
+                                            const isRemoteSpeaking = remoteSpeakingStates[userId]
+                                            const isRemoteHost = userId === hostSocketId
+
+                                            return (
+                                                <div key={userId} className="participant-card">
+                                                    <div className="participant-card-left">
+                                                        <div className="participant-avatar">
+                                                            {getInitials(name)}
+                                                        </div>
+                                                        <div className="participant-info">
+                                                            <div className="participant-name-row">
+                                                                <span className="participant-name">{name}</span>
+                                                                {isRemoteHost && <span className="participant-badge-host">Host</span>}
+                                                            </div>
+                                                            <span className="participant-status-text">
+                                                                {isRemoteSpeaking ? "🎙️ Speaking..." : (isRemoteMuted ? "Mic Muted" : "Active")}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="participant-card-right">
+                                                        <span 
+                                                            className={`status-indicator-btn ${isRemoteMuted ? 'muted' : 'active'}`}
+                                                            title={isRemoteMuted ? "Mic is muted" : "Mic is unmuted"}
+                                                        >
+                                                            {isRemoteMuted ? "🎙️❌" : "🎙️"}
+                                                        </span>
+                                                        <span 
+                                                            className={`status-indicator-btn ${isRemoteCamOff ? 'off' : 'active'}`}
+                                                            title={isRemoteCamOff ? "Camera is off" : "Camera is on"}
+                                                        >
+                                                            {isRemoteCamOff ? "🎥❌" : "🎥"}
+                                                        </span>
+
+                                                        {/* Quick Host Mute Control */}
+                                                        {isHost && (
+                                                            <button 
+                                                                className="quick-host-btn" 
+                                                                onClick={() => {
+                                                                    socketRef.current?.emit('host-mute-user', userId, !isRemoteMuted)
+                                                                    addNotification(`Requested ${isRemoteMuted ? "unmute" : "mute"} for ${name}.`, "info")
+                                                                }}
+                                                                title={isRemoteMuted ? `Ask ${name} to unmute` : `Mute ${name}`}
+                                                            >
+                                                                {isRemoteMuted ? "Unmute" : "Mute"}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                </div>
+
+                                {/* Bottom Bulk Actions */}
+                                <div className="participants-bottom-actions">
+                                    {isHost && (
+                                        <div className="host-bulk-actions-row">
+                                            <button className="bulk-btn mute-all" onClick={() => handleHostMuteAll(true)}>
+                                                🎙️ Mute All
+                                            </button>
+                                            <button className="bulk-btn unmute-all" onClick={() => handleHostMuteAll(false)}>
+                                                🎙️ Unmute All
+                                            </button>
+                                        </div>
+                                    )}
+                                    <button className="invite-full-width-btn" onClick={copyInviteLink}>
+                                        🔗 Copy Meeting Invite Link
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         {sidebarTab === 'chat' && (
                             <div className="chat-tab-panel">
                                 <div className="chat-messages-container">
