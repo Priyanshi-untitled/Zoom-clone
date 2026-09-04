@@ -413,22 +413,43 @@
     color: #f4f4f5;
 }
 
-.reaction-popup {
-    position: absolute;
+.reaction-popup-badge {
+    position: fixed;
+    bottom: 110px;
     left: 50%;
-    top: 40%;
-    transform: translate(-50%, -50%);
-    font-size: 64px;
-    z-index: 30;
-    animation: floatReaction 1.8s forwards ease-out;
+    transform: translateX(-50%);
+    z-index: 2500;
     pointer-events: none;
+    animation: floatReactionBurst 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-@keyframes floatReaction {
-    0% { transform: translate(-50%, 30px) scale(0.6); opacity: 0; }
-    20% { opacity: 1; transform: translate(-50%, -10px) scale(1.1); }
-    80% { opacity: 1; }
-    100% { transform: translate(-50%, -100px) scale(0.9); opacity: 0; }
+.reaction-emoji-anim {
+    font-size: 72px;
+    display: block;
+    filter: drop-shadow(0 10px 25px rgba(0, 0, 0, 0.7));
+}
+
+@keyframes floatReactionBurst {
+    0% {
+        transform: translate(-50%, 40px) scale(0.4);
+        opacity: 0;
+    }
+    20% {
+        transform: translate(-50%, 0) scale(1.3);
+        opacity: 1;
+    }
+    35% {
+        transform: translate(-50%, -15px) scale(1);
+        opacity: 1;
+    }
+    75% {
+        transform: translate(-50%, -60px) scale(1);
+        opacity: 1;
+    }
+    100% {
+        transform: translate(-50%, -120px) scale(0.7);
+        opacity: 0;
+    }
 }
 
 /* ==========================================================================
@@ -572,46 +593,127 @@
 }
 
 /* ==========================================================================
-   Popovers (Reactions, Share, Host Tools)
+   Floating Popovers (Share, React, Host Tools) with Backdrop
    ========================================================================== */
 
-.zoom-share-container,
-.zoom-host-container,
-.zoom-reaction-container {
-    position: relative;
-    display: inline-block;
+.popovers-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1990;
+    background: transparent;
 }
 
-.zoom-share-popover,
-.zoom-host-popover,
-.zoom-reaction-popover {
-    position: absolute;
-    bottom: 68px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #1c1c20;
+.floating-popover {
+    position: fixed;
+    bottom: 86px;
+    background: #18181b;
     border: 1.5px solid #2e2e34;
     border-radius: 12px;
-    padding: 8px;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
-    z-index: 100;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+    z-index: 2000;
+    animation: popoverSlideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes popoverSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* React Popover: Horizontal row of emojis */
+.zoom-reaction-popover {
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 20px;
+    border-radius: 30px;
+    background: rgba(24, 24, 27, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1.5px solid rgba(255, 255, 255, 0.15);
+}
+
+.zoom-reaction-popover span {
+    font-size: 26px;
+    cursor: pointer;
+    transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: inline-block;
+    user-select: none;
+}
+
+.zoom-reaction-popover span:hover {
+    transform: scale(1.35) translateY(-4px);
+}
+
+.zoom-reaction-popover span:active {
+    transform: scale(1.1);
+}
+
+/* Share Popover */
+.zoom-share-popover {
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     gap: 6px;
-    min-width: 200px;
-    animation: popoverFadeUp 0.15s ease-out forwards;
+    padding: 10px;
+    min-width: 240px;
 }
 
-@keyframes popoverFadeUp {
-    from { opacity: 0; transform: translate(-50%, 8px); }
-    to { opacity: 1; transform: translate(-50%, 0); }
+.zoom-share-popover button {
+    background: transparent;
+    border: none;
+    color: #f4f4f5;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    gap: 10px;
 }
 
-.zoom-share-popover button,
+.zoom-share-popover button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+/* Host Tools Popover */
+.zoom-host-popover {
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    min-width: 250px;
+}
+
+.popover-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #a1a1aa;
+    padding: 4px 8px 8px;
+    border-bottom: 1px solid #27272a;
+    margin-bottom: 4px;
+}
+
 .zoom-host-popover button {
     background: transparent;
     border: none;
-    color: var(--meeting-text);
+    color: #f4f4f5;
     padding: 10px 14px;
     border-radius: 8px;
     font-size: 13px;
@@ -621,29 +723,18 @@
     transition: var(--transition-smooth);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
 }
 
-.zoom-share-popover button:hover,
 .zoom-host-popover button:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
 }
 
-.zoom-reaction-popover {
-    flex-direction: row;
-    min-width: auto;
-    padding: 10px 16px;
-    gap: 14px;
-}
-
-.zoom-reaction-popover span {
-    font-size: 24px;
-    cursor: pointer;
-    transition: transform 0.15s ease;
-}
-
-.zoom-reaction-popover span:hover {
-    transform: scale(1.3);
+.popover-icon {
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
 }
 
 /* ==========================================================================
@@ -1582,17 +1673,23 @@
         border-radius: 8px;
     }
 
-    /* Centered Fixed Popovers on Mobile */
-    .zoom-share-popover,
-    .zoom-host-popover,
-    .zoom-reaction-popover {
-        position: fixed;
+    /* Centered Floating Popovers on Mobile */
+    .floating-popover {
         bottom: 78px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: calc(100vw - 24px);
+        width: calc(100vw - 32px);
         max-width: 320px;
-        z-index: 1000;
+        z-index: 2100;
+    }
+
+    .zoom-reaction-popover {
+        width: auto;
+        max-width: calc(100vw - 24px);
+        gap: 12px;
+        padding: 8px 16px;
+    }
+
+    .zoom-reaction-popover span {
+        font-size: 24px;
     }
 
     .notifications-container {

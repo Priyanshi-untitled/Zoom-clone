@@ -346,6 +346,14 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
 
     // Room Host identification socket tracking
     const [hostSocketId, setHostSocketId] = useState(null)
+    const [isHost, setIsHost] = useState(true)
+
+    // Helper to dismiss all floating dropdowns/popovers on backdrop click
+    const closeAllPopovers = () => {
+        setShowShareMenu(false)
+        setShowReactPopover(false)
+        setShowHostPopover(false)
+    }
 
     // Local Video stream state (fixes local disappearing stream on toggling off/on)
     const [currentLocalStream, setCurrentLocalStream] = useState(null)
@@ -1177,6 +1185,13 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
             // When a user joins
             socketRef.current.on('user-joined', async (newUserId, newUserName, usersList, hostId) => {
                 setHostSocketId(hostId)
+                const myId = socketRef.current?.id
+                if (hostId === myId || usersList.length <= 1) {
+                    setIsHost(true)
+                } else {
+                    setIsHost(hostId === myId)
+                }
+
                 const newParticipants = {}
                 const newStates = {}
                 usersList.forEach(u => {
@@ -1209,6 +1224,10 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
             socketRef.current.on('user-left', (userId, newHostId) => {
                 if (newHostId) {
                     setHostSocketId(newHostId)
+                    if (newHostId === socketRef.current?.id) {
+                        setIsHost(true)
+                        addNotification("You are now the meeting host.", "info")
+                    }
                 }
                 if (peersRef.current[userId]) {
                     peersRef.current[userId].close()
@@ -1629,7 +1648,66 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                     </div>
                 )}
 
-                {reactionPopup && <div className="reaction-popup">{reactionPopup}</div>}
+                {/* Floating Animated Emoji Burst on Screen */}
+                {reactionPopup && (
+                    <div className="reaction-popup-badge">
+                        <span className="reaction-emoji-anim">{reactionPopup}</span>
+                    </div>
+                )}
+
+                {/* Floating Popovers Backdrop Overlay */}
+                {(showShareMenu || showReactPopover || showHostPopover) && (
+                    <div className="popovers-backdrop" onClick={closeAllPopovers} />
+                )}
+
+                {/* React Emojis Floating Popover */}
+                {showReactPopover && (
+                    <div className="floating-popover zoom-reaction-popover">
+                        <span onClick={() => sendReaction("👍")} title="Thumbs Up">👍</span>
+                        <span onClick={() => sendReaction("❤️")} title="Heart">❤️</span>
+                        <span onClick={() => sendReaction("😂")} title="Laugh">😂</span>
+                        <span onClick={() => sendReaction("👏")} title="Applause">👏</span>
+                        <span onClick={() => sendReaction("🎉")} title="Tada">🎉</span>
+                        <span onClick={() => sendReaction("🔥")} title="Fire">🔥</span>
+                    </div>
+                )}
+
+                {/* Share Options Floating Popover */}
+                {showShareMenu && (
+                    <div className="floating-popover zoom-share-popover">
+                        <button onClick={() => { toggleScreenShare(); setShowShareMenu(false); }}>
+                            <span className="popover-icon">🖥️</span>
+                            <span>{isScreenSharing ? "Stop Sharing Screen" : "Share Screen"}</span>
+                        </button>
+                        <button onClick={() => { setShowWhiteboard(true); socketRef.current?.emit('whiteboard-start'); setShowShareMenu(false); }}>
+                            <span className="popover-icon">📋</span>
+                            <span>Collaborative Whiteboard</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* Host Tools Floating Popover */}
+                {showHostPopover && (
+                    <div className="floating-popover zoom-host-popover">
+                        <div className="popover-header">🛡️ Host Security Tools</div>
+                        <button onClick={() => { handleHostMuteAll(true); setShowHostPopover(false); }}>
+                            <span className="popover-icon">🎙️❌</span>
+                            <span>Mute All Participants</span>
+                        </button>
+                        <button onClick={() => { handleHostMuteAll(false); setShowHostPopover(false); }}>
+                            <span className="popover-icon">🎙️</span>
+                            <span>Unmute All Participants</span>
+                        </button>
+                        <button onClick={() => { handleHostDisableCams(true); setShowHostPopover(false); }}>
+                            <span className="popover-icon">🎥❌</span>
+                            <span>Turn Off All Cameras</span>
+                        </button>
+                        <button onClick={() => { handleHostDisableCams(false); setShowHostPopover(false); }}>
+                            <span className="popover-icon">🎥</span>
+                            <span>Turn On All Cameras</span>
+                        </button>
+                    </div>
+                )}
 
                 {/* Authentically Zoom-inspired Bottom Controls Bar */}
                 <div className="zoom-controls-bar">
@@ -1681,61 +1759,48 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                             <span className="zoom-btn-label">Polls <span className="chevron-up">^</span></span>
                         </button>
 
-                        {/* Reaction popup selector */}
-                        <div className="zoom-reaction-container">
-                            <button 
-                                className={`zoom-btn ${showReactPopover ? 'active' : ''}`}
-                                onClick={() => setShowReactPopover(!showReactPopover)}
-                            >
-                                <span className="zoom-btn-icon">❤️</span>
-                                <span className="zoom-btn-label">React</span>
-                            </button>
-                            {showReactPopover && (
-                                <div className="zoom-reaction-popover">
-                                    <span onClick={() => { sendReaction("👍"); setShowReactPopover(false); }}>👍</span>
-                                    <span onClick={() => { sendReaction("😂"); setShowReactPopover(false); }}>😂</span>
-                                    <span onClick={() => { sendReaction("❤️"); setShowReactPopover(false); }}>❤️</span>
-                                    <span onClick={() => { sendReaction("👏"); setShowReactPopover(false); }}>👏</span>
-                                </div>
-                            )}
-                        </div>
+                        {/* Reaction button */}
+                        <button 
+                            className={`zoom-btn ${showReactPopover ? 'active' : ''}`}
+                            onClick={() => {
+                                setShowReactPopover(prev => !prev);
+                                setShowShareMenu(false);
+                                setShowHostPopover(false);
+                            }}
+                            title="Emoji Reactions"
+                        >
+                            <span className="zoom-btn-icon">❤️</span>
+                            <span className="zoom-btn-label">React</span>
+                        </button>
 
-                        {/* Share dropdown popover (Screen share & Whiteboard) */}
-                        <div className="zoom-share-container">
-                            <button 
-                                className="zoom-btn green-btn" 
-                                onClick={() => setShowShareMenu(!showShareMenu)}
-                            >
-                                <span className="zoom-btn-icon">⬆️</span>
-                                <span className="zoom-btn-label">Share <span className="chevron-up">^</span></span>
-                            </button>
-                            {showShareMenu && (
-                                <div className="zoom-share-popover">
-                                    <button onClick={() => { toggleScreenShare(); setShowShareMenu(false); }}>🖥️ Share Screen</button>
-                                    <button onClick={() => { setShowWhiteboard(true); socketRef.current?.emit('whiteboard-start'); setShowShareMenu(false); }}>📋 Collaborative Whiteboard</button>
-                                </div>
-                            )}
-                        </div>
+                        {/* Share dropdown button */}
+                        <button 
+                            className={`zoom-btn green-btn ${showShareMenu ? 'active' : ''}`} 
+                            onClick={() => {
+                                setShowShareMenu(prev => !prev);
+                                setShowReactPopover(false);
+                                setShowHostPopover(false);
+                            }}
+                            title="Share Screen or Whiteboard"
+                        >
+                            <span className="zoom-btn-icon">⬆️</span>
+                            <span className="zoom-btn-label">Share <span className="chevron-up">^</span></span>
+                        </button>
 
-                        {/* Security / Host actions (Exclusively visible for the Room Host/Creator) */}
-                        {socketRef.current?.id === hostSocketId && (
-                            <div className="zoom-host-container">
-                                <button 
-                                    className={`zoom-btn ${showHostPopover ? 'active' : ''}`} 
-                                    onClick={() => setShowHostPopover(!showHostPopover)}
-                                >
-                                    <span className="zoom-btn-icon">🛡️</span>
-                                    <span className="zoom-btn-label">Host tools</span>
-                                </button>
-                                {showHostPopover && (
-                                    <div className="zoom-host-popover">
-                                        <button onClick={() => { handleHostMuteAll(true); setShowHostPopover(false); }}>🎙️ Mute All</button>
-                                        <button onClick={() => { handleHostMuteAll(false); setShowHostPopover(false); }}>🎙️ Unmute All</button>
-                                        <button onClick={() => { handleHostDisableCams(true); setShowHostPopover(false); }}>🎥 Turn Off All Cams</button>
-                                        <button onClick={() => { handleHostDisableCams(false); setShowHostPopover(false); }}>🎥 Turn On All Cams</button>
-                                    </div>
-                                )}
-                            </div>
+                        {/* Security / Host actions (Available for the Room Host) */}
+                        {isHost && (
+                            <button 
+                                className={`zoom-btn ${showHostPopover ? 'active' : ''}`} 
+                                onClick={() => {
+                                    setShowHostPopover(prev => !prev);
+                                    setShowShareMenu(false);
+                                    setShowReactPopover(false);
+                                }}
+                                title="Host Security Tools"
+                            >
+                                <span className="zoom-btn-icon">🛡️</span>
+                                <span className="zoom-btn-label">Host tools</span>
+                            </button>
                         )}
 
                         <button 
