@@ -107,8 +107,8 @@ function Meeting() {
         location.state?.guestName || sessionStorage.getItem("guestName") || "Guest"
     )
 
-    const [isMuted, setIsMuted] = useState(false)
-    const [isCameraOff, setIsCameraOff] = useState(false)
+    const [isMuted, setIsMuted] = useState(Boolean(location.state?.startMuted))
+    const [isCameraOff, setIsCameraOff] = useState(Boolean(location.state?.startVideoOff))
     const [isScreenSharing, setIsScreenSharing] = useState(false)
     const [remoteStreams, setRemoteStreams] = useState({})   // { userId: MediaStream }
     const [participants, setParticipants] = useState({})     // { socketId: name }
@@ -616,6 +616,8 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
     const [showShareMenu, setShowShareMenu] = useState(false)
     const [showHostPopover, setShowHostPopover] = useState(false)
     const [showReactPopover, setShowReactPopover] = useState(false)
+    const [showMoreMenu, setShowMoreMenu] = useState(false)
+    const [showMeetingInfoModal, setShowMeetingInfoModal] = useState(false)
     const [showWhiteboard, setShowWhiteboard] = useState(false)
 
     // Room Host identification socket tracking
@@ -632,6 +634,7 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
         socketRef.current?.emit('whiteboard-start', displayName)
         addNotification("You started the collaborative whiteboard.", "info")
         setShowShareMenu(false)
+        setShowMoreMenu(false)
     }
 
     const stopWhiteboard = () => {
@@ -640,6 +643,7 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
         socketRef.current?.emit('whiteboard-stop')
         addNotification("You closed the whiteboard.", "info")
         setShowShareMenu(false)
+        setShowMoreMenu(false)
     }
 
     // Helper to dismiss all floating dropdowns/popovers on backdrop click
@@ -647,6 +651,7 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
         setShowShareMenu(false)
         setShowReactPopover(false)
         setShowHostPopover(false)
+        setShowMoreMenu(false)
     }
 
     // Local Video stream state (fixes local disappearing stream on toggling off/on)
@@ -1351,6 +1356,14 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
             setCurrentLocalStream(stream)
             localStreamRef.current = stream
 
+            // Apply initial media preferences from Join Modal if configured
+            if (location.state?.startMuted) {
+                stream.getAudioTracks().forEach(track => { track.enabled = false })
+            }
+            if (location.state?.startVideoOff) {
+                stream.getVideoTracks().forEach(track => { track.enabled = false })
+            }
+
             // Local Mic Volume level check for local speaking border
             if (stream.getAudioTracks().length > 0) {
                 try {
@@ -1474,6 +1487,12 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
 
             socketRef.current.on('connect', () => {
                 socketRef.current.emit('join-call', cleanCode, resolvedName)
+                if (location.state?.startMuted) {
+                    socketRef.current.emit('toggle-mute', true)
+                }
+                if (location.state?.startVideoOff) {
+                    socketRef.current.emit('toggle-camera', true)
+                }
             })
 
             // Verify room entry failures
@@ -1879,6 +1898,14 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                 {/* Sleek Authentically Zoom Top Header Bar */}
                 <div className="zoom-top-bar">
                     <div className="top-bar-left">
+                        <button 
+                            className="zoom-shield-badge" 
+                            onClick={() => setShowMeetingInfoModal(prev => !prev)}
+                            title="Meeting Information (Zoom Security)"
+                        >
+                            <span className="shield-icon">🛡️</span>
+                            <span className="shield-check">✓</span>
+                        </button>
                         <span className="room-code-badge" onClick={copyInviteLink} title="Click to copy invite link">
                             <span>Room: <strong>{code}</strong></span>
                             <span className="copy-icon">📋</span>
@@ -1894,6 +1921,49 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                         </button>
                     </div>
                 </div>
+
+                {/* Authentic Zoom Green Shield Meeting Information Modal */}
+                {showMeetingInfoModal && (
+                    <div className="zoom-modal-backdrop" onClick={() => setShowMeetingInfoModal(false)}>
+                        <div className="zoom-info-card" onClick={e => e.stopPropagation()}>
+                            <div className="zoom-info-header">
+                                <div className="zoom-info-title">
+                                    <span className="shield-green-icon">🛡️</span>
+                                    <h3>Meeting Information</h3>
+                                </div>
+                                <button className="zoom-info-close" onClick={() => setShowMeetingInfoModal(false)}>✕</button>
+                            </div>
+                            <div className="zoom-info-body">
+                                <div className="info-detail-row">
+                                    <span className="info-label">Topic:</span>
+                                    <span className="info-val">{displayName}'s Meeting Room</span>
+                                </div>
+                                <div className="info-detail-row">
+                                    <span className="info-label">Meeting ID:</span>
+                                    <span className="info-val font-mono">{code}</span>
+                                </div>
+                                <div className="info-detail-row">
+                                    <span className="info-label">Host:</span>
+                                    <span className="info-val">{isHost ? `${displayName} (You)` : "Room Host"}</span>
+                                </div>
+                                <div className="info-detail-row">
+                                    <span className="info-label">Security:</span>
+                                    <span className="info-val text-green">🔒 Enhanced 256-bit DTLS / SRTP (End-to-End Encrypted)</span>
+                                </div>
+                                <div className="info-detail-row invite-box-row">
+                                    <span className="info-label">Invite Link:</span>
+                                    <div className="invite-input-wrap">
+                                        <input readOnly value={window.location.href} className="invite-readonly-input" />
+                                        <button className="copy-link-action-btn" onClick={copyInviteLink}>Copy Link</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="zoom-info-footer">
+                                <span>👥 {Object.keys(participants).length || 1} participant(s) connected</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Collaborative drawing canvas overlay */}
                 {showWhiteboard ? (
@@ -2005,7 +2075,7 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                 )}
 
                 {/* Floating Popovers Backdrop Overlay */}
-                {(showShareMenu || showReactPopover || showHostPopover) && (
+                {(showShareMenu || showReactPopover || showHostPopover || showMoreMenu) && (
                     <div className="popovers-backdrop" onClick={closeAllPopovers} />
                 )}
 
@@ -2058,6 +2128,64 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                     </div>
                 )}
 
+                {/* Authentic Zoom More (...) Floating Popover Menu */}
+                {showMoreMenu && (
+                    <div className="floating-popover zoom-more-popover">
+                        <div className="popover-header">⋯ More Meeting Tools</div>
+                        <button onClick={() => { 
+                            if (showWhiteboard) stopWhiteboard(); else startWhiteboard(); 
+                            setShowMoreMenu(false); 
+                        }}>
+                            <span className="popover-icon">📋</span>
+                            <span>{showWhiteboard ? "Stop Sharing Whiteboard" : "Collaborative Whiteboard"}</span>
+                        </button>
+                        <button onClick={() => { 
+                            handleToggleSidebarTab('notes'); 
+                            setShowMoreMenu(false); 
+                        }}>
+                            <span className="popover-icon">✨</span>
+                            <span>AI Notes & Smart Summary</span>
+                        </button>
+                        <button onClick={() => { 
+                            handleToggleSidebarTab('polls'); 
+                            setShowMoreMenu(false); 
+                        }}>
+                            <span className="popover-icon">📊</span>
+                            <span>Polls & Quizzes</span>
+                        </button>
+                        <button onClick={() => { 
+                            handleToggleSidebarTab('files'); 
+                            setShowMoreMenu(false); 
+                        }}>
+                            <span className="popover-icon">📁</span>
+                            <span>Files & Documents</span>
+                        </button>
+                        <button onClick={() => {
+                            setShowMeetingInfoModal(true);
+                            setShowMoreMenu(false);
+                        }}>
+                            <span className="popover-icon">ℹ️</span>
+                            <span>Meeting Details & Info</span>
+                        </button>
+                        <button onClick={() => { 
+                            copyInviteLink(); 
+                            setShowMoreMenu(false); 
+                        }}>
+                            <span className="popover-icon">🔗</span>
+                            <span>Copy Invitation Link</span>
+                        </button>
+                        {isHost && (
+                            <button onClick={() => { 
+                                setShowHostPopover(true); 
+                                setShowMoreMenu(false); 
+                            }}>
+                                <span className="popover-icon">🛡️</span>
+                                <span>Host Security Tools</span>
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 {/* Authentically Zoom-inspired Bottom Controls Bar */}
                 <div className="zoom-controls-bar">
                     
@@ -2102,7 +2230,7 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                         </button>
 
                         <button 
-                            className={`zoom-btn ${showSidebar && sidebarTab === 'polls' ? 'active' : ''}`} 
+                            className={`zoom-btn desktop-only-control ${showSidebar && sidebarTab === 'polls' ? 'active' : ''}`} 
                             onClick={() => handleToggleSidebarTab('polls')}
                         >
                             <span className="zoom-btn-icon">📊</span>
@@ -2111,11 +2239,12 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
 
                         {/* Reaction button */}
                         <button 
-                            className={`zoom-btn ${showReactPopover ? 'active' : ''}`}
+                            className={`zoom-btn desktop-only-control ${showReactPopover ? 'active' : ''}`}
                             onClick={() => {
                                 setShowReactPopover(prev => !prev);
                                 setShowShareMenu(false);
                                 setShowHostPopover(false);
+                                setShowMoreMenu(false);
                             }}
                             title="Emoji Reactions"
                         >
@@ -2130,6 +2259,7 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                                 setShowShareMenu(prev => !prev);
                                 setShowReactPopover(false);
                                 setShowHostPopover(false);
+                                setShowMoreMenu(false);
                             }}
                             title="Share Screen or Whiteboard"
                         >
@@ -2140,11 +2270,12 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                         {/* Security / Host actions (Available for the Room Host) */}
                         {isHost && (
                             <button 
-                                className={`zoom-btn ${showHostPopover ? 'active' : ''}`} 
+                                className={`zoom-btn desktop-only-control ${showHostPopover ? 'active' : ''}`} 
                                 onClick={() => {
                                     setShowHostPopover(prev => !prev);
                                     setShowShareMenu(false);
                                     setShowReactPopover(false);
+                                    setShowMoreMenu(false);
                                 }}
                                 title="Host Security Tools"
                             >
@@ -2154,18 +2285,25 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                         )}
 
                         <button 
-                            className={`zoom-btn ${showSidebar && sidebarTab === 'notes' ? 'active' : ''}`} 
+                            className={`zoom-btn desktop-only-control ${showSidebar && sidebarTab === 'notes' ? 'active' : ''}`} 
                             onClick={() => handleToggleSidebarTab('notes')}
                         >
                             <span className="zoom-btn-icon">✨</span>
                             <span className="zoom-btn-label">Zoom AI</span>
                         </button>
 
+                        {/* Authentic Zoom More (...) Popover Menu Button */}
                         <button 
-                            className={`zoom-btn ${showSidebar && sidebarTab === 'files' ? 'active' : ''}`} 
-                            onClick={() => handleToggleSidebarTab('files')}
+                            className={`zoom-btn ${showMoreMenu ? 'active' : ''}`} 
+                            onClick={() => {
+                                setShowMoreMenu(prev => !prev);
+                                setShowShareMenu(false);
+                                setShowReactPopover(false);
+                                setShowHostPopover(false);
+                            }}
+                            title="More Meeting Tools"
                         >
-                            <span className="zoom-btn-icon">...</span>
+                            <span className="zoom-btn-icon">⋯</span>
                             <span className="zoom-btn-label">More</span>
                         </button>
                     </div>

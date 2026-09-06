@@ -97,6 +97,214 @@
     font-weight: 600;
 }
 
+/* Authentic Zoom Top-Left Security Shield Badge */
+.zoom-shield-badge {
+    background: #10b981;
+    color: #ffffff;
+    border: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
+    transition: var(--transition-smooth);
+    flex-shrink: 0;
+}
+
+.zoom-shield-badge:hover {
+    transform: scale(1.08);
+    background: #059669;
+    box-shadow: 0 4px 10px rgba(16, 185, 129, 0.5);
+}
+
+.shield-icon {
+    font-size: 13px;
+}
+
+.shield-check {
+    position: absolute;
+    font-size: 9px;
+    font-weight: 800;
+    color: #ffffff;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -45%);
+}
+
+/* Meeting Information Modal Dialog */
+.zoom-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    animation: fadeInModal 0.15s ease-out forwards;
+}
+
+@keyframes fadeInModal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.zoom-info-card {
+    background: #18181b;
+    border: 1.5px solid #2e2e34;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: scaleUpModal 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes scaleUpModal {
+    from { transform: scale(0.92); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.zoom-info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 20px;
+    border-bottom: 1px solid #27272a;
+    background: #202024;
+}
+
+.zoom-info-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.shield-green-icon {
+    font-size: 20px;
+}
+
+.zoom-info-title h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.zoom-info-close {
+    background: transparent;
+    border: none;
+    color: #a1a1aa;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: var(--transition-smooth);
+}
+
+.zoom-info-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+.zoom-info-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.info-detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13.5px;
+    gap: 12px;
+}
+
+.info-detail-row.invite-box-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.info-label {
+    color: #a1a1aa;
+    font-weight: 500;
+    min-width: 90px;
+}
+
+.info-val {
+    color: #f4f4f5;
+    font-weight: 600;
+    text-align: right;
+}
+
+.info-val.font-mono {
+    font-family: monospace;
+    font-size: 15px;
+    letter-spacing: 1px;
+    color: #818cf8;
+}
+
+.info-val.text-green {
+    color: #34d399;
+    font-size: 12.5px;
+}
+
+.invite-input-wrap {
+    display: flex;
+    width: 100%;
+    gap: 8px;
+}
+
+.invite-readonly-input {
+    flex: 1;
+    background: #09090b;
+    border: 1px solid #27272a;
+    border-radius: 8px;
+    color: #e4e4e7;
+    padding: 8px 12px;
+    font-size: 12.5px;
+    outline: none;
+}
+
+.copy-link-action-btn {
+    background: #6366f1;
+    color: #ffffff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    white-space: nowrap;
+}
+
+.copy-link-action-btn:hover {
+    background: #4f46e5;
+}
+
+.zoom-info-footer {
+    padding: 12px 20px;
+    background: #141417;
+    border-top: 1px solid #27272a;
+    font-size: 12.5px;
+    color: #a1a1aa;
+    display: flex;
+    align-items: center;
+}
+
 .call-duration-tag {
     font-size: 12.5px;
     font-weight: 600;
@@ -735,6 +943,40 @@
     font-size: 16px;
     display: inline-flex;
     align-items: center;
+}
+
+/* Authentic Zoom More Popover */
+.zoom-more-popover {
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px;
+    min-width: 260px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.zoom-more-popover button {
+    background: transparent;
+    border: none;
+    color: #f4f4f5;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.zoom-more-popover button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
 }
 
 /* ==========================================================================
@@ -2281,13 +2523,12 @@
         gap: 2px;
     }
 
-    .zoom-controls-group {
-        gap: 2px;
-        padding: 0 4px;
+    .desktop-only-control {
+        display: none !important;
     }
 
     .zoom-btn {
-        min-width: 50px;
+        min-width: 46px;
         padding: 4px 4px;
         gap: 2px;
     }
