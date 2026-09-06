@@ -6,6 +6,7 @@ let socketNames = {};
 let socketMutedStates = {};
 let socketCameraStates = {};
 let activePolls = {}; // { roomKey: { question, options, votes: { socketId: optionIndex } } }
+let roomTranscripts = {}; // { roomKey: [ { id, senderId, name, text, timestamp, createdAt, isManual } ] }
 let messages = {};
 let timeOnline = {};
 
@@ -97,6 +98,11 @@ export const connectToSocket = (server) => {
                 // Sync active poll if it exists
                 if (activePolls[cleanCode] !== undefined) {
                     io.to(socket.id).emit("poll-update", activePolls[cleanCode]);
+                }
+
+                // Sync room transcripts to newly joined participant
+                if (roomTranscripts[cleanCode] && roomTranscripts[cleanCode].length > 0) {
+                    io.to(socket.id).emit("room-transcript-sync", roomTranscripts[cleanCode]);
                 }
             } catch (err) {
                 console.error("Socket join error:", err);
@@ -196,19 +202,81 @@ export const connectToSocket = (server) => {
             }
         });
 
-        // User Speech Transcription Relay
+        // User Speech Transcription Relay & Centralized Transcript Store
         socket.on("user-speech", (text, isFinal) => {
             const matchingRoom = findRoomOfSocket(socket.id);
+            if (!matchingRoom || !text || text.trim().length < 2) return;
+            const senderName = socketNames[socket.id] || "Participant";
+
+            // Relay live interim speech to other participants for real-time live subtitles
+            connections[matchingRoom].forEach((elem) => {
+                if (elem !== socket.id) {
+                    io.to(elem).emit("user-speech", {
+                        senderId: socket.id,
+                        name: senderName,
+                        text: text.trim(),
+                        isFinal
+                    });
+                }
+            });
+
+            // If finalized speech, persist to room transcript history and broadcast new-transcript-entry to ALL participants
+            if (isFinal) {
+                if (!roomTranscripts[matchingRoom]) {
+                    roomTranscripts[matchingRoom] = [];
+                }
+                const newEntry = {
+                    id: `ts_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+                    senderId: socket.id,
+                    name: senderName,
+                    text: text.trim(),
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    createdAt: Date.now()
+                };
+
+                // Prevent duplicate commit if identical to last entry
+                const roomLogs = roomTranscripts[matchingRoom];
+                const lastEntry = roomLogs[roomLogs.length - 1];
+                if (!lastEntry || lastEntry.senderId !== socket.id || lastEntry.text !== newEntry.text) {
+                    roomLogs.push(newEntry);
+                    // Broadcast confirmed entry to EVERY user in the room (including speaker, ensuring 100% two-way sync)
+                    connections[matchingRoom].forEach((elem) => {
+                        io.to(elem).emit("new-transcript-entry", newEntry);
+                    });
+                }
+            }
+        });
+
+        // Add manual key point / note (accessible from any device/browser without speech recognition)
+        socket.on("add-manual-note", (text) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            if (!matchingRoom || !text || !text.trim()) return;
+            if (!roomTranscripts[matchingRoom]) {
+                roomTranscripts[matchingRoom] = [];
+            }
+            const senderName = socketNames[socket.id] || "Participant";
+            const newEntry = {
+                id: `ts_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+                senderId: socket.id,
+                name: senderName,
+                text: text.trim(),
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                createdAt: Date.now(),
+                isManual: true
+            };
+            roomTranscripts[matchingRoom].push(newEntry);
+            connections[matchingRoom].forEach((elem) => {
+                io.to(elem).emit("new-transcript-entry", newEntry);
+            });
+        });
+
+        // Clear all room transcripts
+        socket.on("clear-transcripts", () => {
+            const matchingRoom = findRoomOfSocket(socket.id);
             if (matchingRoom) {
+                roomTranscripts[matchingRoom] = [];
                 connections[matchingRoom].forEach((elem) => {
-                    if (elem !== socket.id) {
-                        io.to(elem).emit("user-speech", {
-                            senderId: socket.id,
-                            name: socketNames[socket.id] || "Participant",
-                            text,
-                            isFinal
-                        });
-                    }
+                    io.to(elem).emit("transcripts-cleared");
                 });
             }
         });
@@ -311,6 +379,16 @@ export const connectToSocket = (server) => {
             if (matchingRoom && trimmed) {
                 const oldName = socketNames[socket.id] || "Participant";
                 socketNames[socket.id] = trimmed;
+
+                // Retroactively update past transcript sender names for this user
+                if (roomTranscripts[matchingRoom]) {
+                    roomTranscripts[matchingRoom].forEach(entry => {
+                        if (entry.senderId === socket.id) {
+                            entry.name = trimmed;
+                        }
+                    });
+                }
+
                 connections[matchingRoom].forEach((elem) => {
                     io.to(elem).emit("user-name-changed", socket.id, trimmed, oldName);
                 });
@@ -341,6 +419,7 @@ export const connectToSocket = (server) => {
                 if (connections[matchingRoom].length === 0) {
                     delete connections[matchingRoom];
                     delete activePolls[matchingRoom];
+                    delete roomTranscripts[matchingRoom];
                 }
             }
 

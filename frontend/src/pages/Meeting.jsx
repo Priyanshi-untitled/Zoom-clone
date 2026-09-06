@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { io } from 'socket.io-client'
 import axios from 'axios'
@@ -154,16 +154,26 @@ function Meeting() {
     // AI Notes & Real-time Transcription States
     const [transcriptLogs, setTranscriptLogs] = useState([])
     const [activeSubtitles, setActiveSubtitles] = useState(null)
-    const [summaryText, setSummaryText] = useState("")
     const recognitionRef = useRef(null)
 
     // Speech Recognition Lang state (Defaults to Indian English / Hinglish for high accuracy)
     const [transcriptionLang, setTranscriptionLang] = useState("en-IN")
     const [isAiRecording, setIsAiRecording] = useState(true)
     const isAiRecordingRef = useRef(true)
+    const isRecognizingRef = useRef(false)
+    const isSpeechStartingRef = useRef(false)
+    const [speechGestureNeeded, setSpeechGestureNeeded] = useState(false)
     const speechRestartTimeoutRef = useRef(null)
     const localSpeechTimeoutRef = useRef(null)
-    const remoteSpeechTimeoutsRef = useRef({})
+    const subtitlesClearTimeoutRef = useRef(null)
+
+    // AI Notes UI Sub-tabs & Interactive States
+    const [aiSubtab, setAiSubtab] = useState('summary') // 'summary' | 'actions' | 'transcript'
+    const [transcriptSearch, setTranscriptSearch] = useState("")
+    const [manualNoteInput, setManualNoteInput] = useState("")
+    const [completedActionIds, setCompletedActionIds] = useState({})
+    const [lastSummaryRefreshTime, setLastSummaryRefreshTime] = useState(Date.now())
+    const [isRefreshingSummary, setIsRefreshingSummary] = useState(false)
 
     // Mid-Meeting Name Change state
     const [isEditingName, setIsEditingName] = useState(false)
@@ -186,77 +196,78 @@ function Meeting() {
         "subscribe"
     ]
 
-    // Synchronize recognition engine language dynamically when user changes dropdown
-    useEffect(() => {
-        if (recognitionRef.current) {
-            try {
-                recognitionRef.current.lang = transcriptionLang
-            } catch (e) {
-                console.warn("Could not dynamically change recognition language:", e)
+    // Safe Speech Engine Controller (Cross-Browser & Mobile Gesture Compliant)
+    const startSpeechEngine = useCallback(() => {
+        if (!isAiRecordingRef.current) return
+        if (!recognitionRef.current) return
+        if (isRecognizingRef.current || isSpeechStartingRef.current) return
+
+        const audioTrack = localStreamRef.current?.getAudioTracks()[0]
+        if (audioTrack && audioTrack.enabled === false) return
+
+        try {
+            isSpeechStartingRef.current = true
+            recognitionRef.current.start()
+            setSpeechGestureNeeded(false)
+        } catch (err) {
+            isSpeechStartingRef.current = false
+            if (err.name === 'NotAllowedError' || (err.message && err.message.toLowerCase().includes('not-allowed'))) {
+                setSpeechGestureNeeded(true)
+            } else if (err.name === 'InvalidStateError') {
+                isRecognizingRef.current = true
             }
         }
-    }, [transcriptionLang])
+    }, [])
 
-    // Clean, accurate, deduplicated speech committing engine
-    const cleanAndCommitSpeech = (sender, rawText) => {
-        if (!rawText) return
-        const text = rawText.trim()
-        
-        // 1. Ignore tiny noise clicks and short phonemes
-        if (text.length < 3) return
-        
-        // 2. Filter out known silence hallucinations
-        const lower = text.toLowerCase()
-        if (HALLUCINATION_PHRASES.some(phrase => lower.includes(phrase))) {
-            return
+    // Clear all room transcript logs synchronously across all participants
+    const clearTranscriptLogs = () => {
+        if (window.confirm("Are you sure you want to clear the AI meeting notes for all participants?")) {
+            socketRef.current?.emit('clear-transcripts')
+            setTranscriptLogs([])
+            setCompletedActionIds({})
+            lastSpeechTextRef.current = ""
+            addNotification("AI meeting minutes cleared.", "info")
         }
-
-        const now = Date.now()
-        const lastText = lastSpeechTextRef.current
-        const lastSender = lastSpeechSenderRef.current
-        const elapsed = now - lastSpeechTimeRef.current
-
-        // 3. Exact duplicate or redundant suffix prevention
-        if (lastSender === sender && (lastText === text || lastText.endsWith(text))) {
-            return
-        }
-
-        // 4. In-place progressive update if sentence is an active continuation of previous clause
-        if (lastSender === sender && elapsed < 3500 && text.startsWith(lastText) && text.length > lastText.length) {
-            setTranscriptLogs(prev => {
-                if (prev.length === 0) return prev
-                const updated = [...prev]
-                updated[updated.length - 1] = {
-                    ...updated[updated.length - 1],
-                    text: text
-                }
-                return updated
-            })
-            lastSpeechTextRef.current = text
-            lastSpeechTimeRef.current = now
-            return
-        }
-
-        // 5. Commit clean new speech entry
-        lastSpeechTextRef.current = text
-        lastSpeechSenderRef.current = sender
-        lastSpeechTimeRef.current = now
-
-        setTranscriptLogs(prev => [...prev, {
-            name: sender,
-            text: text,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }])
-
-        setTimeout(() => {
-            setActiveSubtitles(prev => (prev && prev.sender === sender ? null : prev))
-        }, 3500)
     }
 
-    const clearTranscriptLogs = () => {
-        setTranscriptLogs([])
-        lastSpeechTextRef.current = ""
-        addNotification("AI transcript logs cleared.", "info")
+    // Toggle interactive action item checkbox
+    const toggleActionItem = (actionId) => {
+        setCompletedActionIds(prev => ({
+            ...prev,
+            [actionId]: !prev[actionId]
+        }))
+    }
+
+    // Add manual key point / note from input
+    const handleAddManualNote = (e) => {
+        e?.preventDefault()
+        const trimmed = (manualNoteInput || "").trim()
+        if (!trimmed) return
+        socketRef.current?.emit('add-manual-note', trimmed)
+        setManualNoteInput("")
+        addNotification("Note added to AI meeting minutes.", "info")
+    }
+
+    // Manual Refresh of AI Summary
+    const handleRefreshSummary = () => {
+        setIsRefreshingSummary(true)
+        setTimeout(() => {
+            setLastSummaryRefreshTime(Date.now())
+            setIsRefreshingSummary(false)
+            addNotification("AI Summary updated.", "info")
+        }, 500)
+    }
+
+    // Copy executive summary to clipboard
+    const copySummaryToClipboard = (summaryObj) => {
+        if (!summaryObj) return
+        const textToCopy = `📝 EXECUTIVE MEETING SUMMARY (${code})\nDuration: ${summaryObj.stats.formattedDuration} | Participants: ${summaryObj.stats.participantCount}\n\n${summaryObj.executiveNarrative}\n\n🛠️ ACTION ITEMS:\n${summaryObj.actionItems.map(a => `• [${completedActionIds[a.id] ? 'X' : ' '}] ${a.assignee}: ${a.text}`).join('\n') || 'None recorded'}\n\n🤝 KEY DECISIONS:\n${summaryObj.decisions.map(d => `• ${d.speaker}: ${d.text}`).join('\n') || 'None recorded'}`
+        
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            addNotification("Executive summary copied to clipboard!", "info")
+        }).catch(() => {
+            addNotification("Failed to copy summary.", "error")
+        })
     }
 
     // Mid-Meeting Name Change submit
@@ -310,33 +321,56 @@ function Meeting() {
         }
     }
 
-    // Toggle AI Speech Recording ON/OFF to give users full control and prevent mobile mic chime spam
+    // Toggle AI Speech Recording ON/OFF to give users full control and manage mic state
     const toggleAiRecording = () => {
         const newState = !isAiRecording
         setIsAiRecording(newState)
         isAiRecordingRef.current = newState
         if (newState) {
-            try {
-                recognitionRef.current?.start()
-                addNotification("AI Speech Transcription activated.", "info")
-            } catch (e) {}
+            startSpeechEngine()
+            addNotification("AI Speech Transcription activated.", "info")
         } else {
             if (speechRestartTimeoutRef.current) clearTimeout(speechRestartTimeoutRef.current)
             try {
                 recognitionRef.current?.stop()
+                isRecognizingRef.current = false
+                isSpeechStartingRef.current = false
                 addNotification("AI Speech Transcription paused.", "info")
             } catch (e) {}
         }
     }
 
-    // Comprehensive Executive Meeting Minutes & Summary Generator
-    const generateMeetingSummary = (logs, roomCode, durationSec) => {
+    // Comprehensive NLP-Style Meeting Minutes & Executive Summary Engine
+    const generateStructuredMinutes = (logs, roomCode, durationSec) => {
         if (!logs || logs.length === 0) {
-            return "No speech recorded yet. Speak in the meeting to generate real-time AI notes and executive summary."
+            return {
+                executiveNarrative: "No speech recorded yet. Unmute your microphone, speak in the meeting, or type quick points below to compile AI minutes.",
+                stats: {
+                    totalStatements: 0,
+                    participantCount: 0,
+                    wordsSpoken: 0,
+                    formattedDuration: formatDuration(durationSec)
+                },
+                actionItems: [],
+                decisions: [],
+                categorizedTopics: {
+                    goals: [],
+                    progress: [],
+                    blockers: [],
+                    proposals: []
+                },
+                questions: [],
+                speakerContributions: [],
+                markdownReport: `# 📝 Executive Meeting Minutes\n**Meeting Code:** \`${roomCode}\`\n\nNo speech recorded yet.`
+            }
         }
 
         const participantsList = Array.from(new Set(logs.map(l => l.name)))
         const totalStatements = logs.length
+        let totalWords = 0
+        logs.forEach(l => {
+            totalWords += (l.text || "").split(/\s+/).filter(Boolean).length
+        })
 
         // Group contributions by participant
         const speakerMap = {}
@@ -345,113 +379,237 @@ function Meeting() {
         })
 
         // Action keywords (English + Hindi/Hinglish)
-        const actionKeywords = [
+        const actionTriggers = [
             "i will", "we need to", "make sure", "todo", "action", "task", "scheduled", "assign", 
             "karna hai", "karunga", "karungi", "dekh lena", "send me", "share with", "follow up", 
-            "deadline", "tomorrow", "next week", "bhej dunga", "bhej dena", "check karo", "complete"
+            "deadline", "tomorrow", "next week", "bhej dunga", "bhej dena", "check karo", "complete",
+            "fix karo", "implement", "deploy", "review", "test karo", "bnao", "update"
         ]
-        const actionItems = []
 
         // Decision keywords
-        const decisionKeywords = [
+        const decisionTriggers = [
             "decided", "agreed", "confirmed", "approved", "we should", "resolved", 
-            "theek hai", "done", "final", "pakka", "finalize", "chosen", "agreed on", "fix"
+            "theek hai", "done", "final", "pakka", "finalize", "chosen", "agreed on", "fix ho gya"
         ]
+
+        // Topic triggers
+        const goalTriggers = ["goal", "aim", "target", "agenda", "focus", "karna hai", "karunga", "plan", "start", "shuru"]
+        const progressTriggers = ["completed", "done", "fixed", "update", "working", "ready", "hogya", "chalu", "ban gaya"]
+        const blockerTriggers = ["issue", "problem", "error", "bug", "stuck", "fail", "slow", "khrb", "dikkat", "galti", "trouble"]
+        const proposalTriggers = ["suggest", "how about", "idea", "could we", "soch rha", "feature", "improve", "better", "option"]
+
+        const actionItems = []
         const decisions = []
-
-        // Questions & key discussions
         const questions = []
-        const keyHighlights = []
+        const categorizedTopics = {
+            goals: [],
+            progress: [],
+            blockers: [],
+            proposals: []
+        }
 
-        logs.forEach(log => {
+        // Helper to strip action prefixes for clean tasks
+        const cleanActionText = (raw) => {
+            let t = raw
+            const prefixes = [
+                /^i will\s+/i, /^we need to\s+/i, /^make sure to\s+/i, /^make sure\s+/i,
+                /^please\s+/i, /^check karo\s+/i, /^dekh lena\s+/i, /^mujhe\s+/i
+            ]
+            prefixes.forEach(p => { t = t.replace(p, '') })
+            return t.charAt(0).toUpperCase() + t.slice(1)
+        }
+
+        logs.forEach((log, index) => {
             const text = (log.text || "").trim()
             const lower = text.toLowerCase()
+            const speaker = log.name
 
-            if (text.endsWith('?') || lower.startsWith('kya') || lower.startsWith('kaise') || lower.startsWith('why') || lower.startsWith('how') || lower.startsWith('what')) {
-                if (!questions.some(q => q.includes(text))) {
-                    questions.push(`**${log.name}** asked: "${text}"`)
+            // 1. Questions extraction
+            if (text.endsWith('?') || lower.startsWith('kya') || lower.startsWith('kaise') || lower.startsWith('why') || lower.startsWith('how') || lower.startsWith('what') || lower.startsWith('when')) {
+                if (!questions.some(q => q.text === text)) {
+                    questions.push({ speaker, text })
                 }
             }
 
-            if (actionKeywords.some(kw => lower.includes(kw))) {
-                actionItems.push(`**${log.name}**: "${text}"`)
+            // 2. Action items extraction
+            if (actionTriggers.some(trigger => lower.includes(trigger))) {
+                const cleaned = cleanActionText(text)
+                if (!actionItems.some(item => item.rawText === text)) {
+                    actionItems.push({
+                        id: `act_${index}_${speaker.replace(/\s+/g, '')}`,
+                        assignee: speaker,
+                        text: cleaned,
+                        rawText: text
+                    })
+                }
             }
 
-            if (decisionKeywords.some(kw => lower.includes(kw))) {
-                decisions.push(`**${log.name}**: "${text}"`)
+            // 3. Decisions extraction
+            if (decisionTriggers.some(trigger => lower.includes(trigger))) {
+                if (!decisions.some(d => d.text === text)) {
+                    decisions.push({
+                        id: `dec_${index}`,
+                        speaker,
+                        text: text.charAt(0).toUpperCase() + text.slice(1)
+                    })
+                }
             }
 
-            if (text.length > 15 && keyHighlights.length < 12) {
-                keyHighlights.push(`• **${log.name}**: "${text}"`)
+            // 4. Topic categorization
+            if (goalTriggers.some(g => lower.includes(g)) && categorizedTopics.goals.length < 6) {
+                if (!categorizedTopics.goals.some(x => x.text === text)) {
+                    categorizedTopics.goals.push({ speaker, text })
+                }
+            }
+            if (progressTriggers.some(p => lower.includes(p)) && categorizedTopics.progress.length < 6) {
+                if (!categorizedTopics.progress.some(x => x.text === text)) {
+                    categorizedTopics.progress.push({ speaker, text })
+                }
+            }
+            if (blockerTriggers.some(b => lower.includes(b)) && categorizedTopics.blockers.length < 6) {
+                if (!categorizedTopics.blockers.some(x => x.text === text)) {
+                    categorizedTopics.blockers.push({ speaker, text })
+                }
+            }
+            if (proposalTriggers.some(pr => lower.includes(pr)) && categorizedTopics.proposals.length < 6) {
+                if (!categorizedTopics.proposals.some(x => x.text === text)) {
+                    categorizedTopics.proposals.push({ speaker, text })
+                }
             }
         })
 
-        let executiveNarrative = ""
+        // High frequency topic keywords detection
+        const wordFrequencies = {}
+        const stopWords = new Set([
+            "the", "is", "at", "which", "on", "and", "a", "an", "in", "to", "for", "of", "it", "with", 
+            "as", "this", "that", "i", "we", "you", "they", "he", "she", "hai", "ka", "ki", "ke", 
+            "ko", "ho", "bhi", "tha", "thi", "kar", "kya", "me", "se", "ye", "wo", "h", "m", "toh"
+        ])
+        logs.forEach(l => {
+            const words = (l.text || "").toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/)
+            words.forEach(w => {
+                if (w.length > 3 && !stopWords.has(w)) {
+                    wordFrequencies[w] = (wordFrequencies[w] || 0) + 1
+                }
+            })
+        })
+        const topKeywords = Object.entries(wordFrequencies)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4)
+            .map(([w]) => w)
+
+        // Synthesize Executive Narrative
+        let narrative = ""
+        const speakersText = participantsList.length > 1 
+            ? `**${participantsList.slice(0, -1).join(', ')} and ${participantsList.slice(-1)}**`
+            : `**${participantsList[0] || "Participant"}**`
+
+        const durationStr = formatDuration(durationSec)
+        const topicClue = topKeywords.length > 0 ? ` Discussions prioritized key themes around **${topKeywords.join(', ')}**.` : ""
+
         if (participantsList.length > 1) {
-            executiveNarrative = `Collaborative multi-participant meeting between **${participantsList.join(' and ')}** spanning **${formatDuration(durationSec)}**. The participants actively discussed project updates, exchanged ideas, and aligned on key deliverables across **${totalStatements}** diarized speech statements.`
+            narrative = `During this **${durationStr}** session, ${speakersText} convened to review project deliverables across **${totalStatements}** diarized speech statements.${topicClue} The discussion established **${actionItems.length} action item${actionItems.length === 1 ? '' : 's'}** and aligned on **${decisions.length} ratified decision${decisions.length === 1 ? '' : 's'}**.`
         } else {
-            executiveNarrative = `Active briefing by **${participantsList[0] || "Participant"}** lasting **${formatDuration(durationSec)}** with **${totalStatements}** recorded speech statements documenting key agenda items and operational notes.`
+            narrative = `${speakersText} led a **${durationStr}** operational briefing with **${totalStatements}** statements recorded.${topicClue} Outlined **${actionItems.length} action item${actionItems.length === 1 ? '' : 's'}** for subsequent execution.`
         }
 
-        return `
-# 📝 Executive Meeting Minutes & Summary
+        // Full Markdown report
+        const markdownReport = `
+# 📝 Executive Meeting Minutes & AI Summary
 **Meeting Code:** \`${roomCode}\`  
 **Date:** ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}  
-**Duration:** ${formatDuration(durationSec)}  
-**Participants:** ${participantsList.join(', ') || "None"}
+**Duration:** ${durationStr}  
+**Participants:** ${participantsList.join(', ') || "None"}  
+**Total Statements:** ${totalStatements} | **Total Words:** ${totalWords}
 
 ---
 
 ## 📌 1. Executive Summary
-${executiveNarrative}
+${narrative}
 
 ---
 
-## 💡 2. Key Discussion Topics & Points
-${keyHighlights.length > 0 
-    ? keyHighlights.join('\n\n') 
-    : "Active participant discussion recorded."
+## 🛠️ 2. Action Items & Next Steps
+${actionItems.length > 0 
+    ? actionItems.map(item => `- [ ] **${item.assignee}**: ${item.text}`).join('\n')
+    : "- [ ] Follow up on discussed agenda items."
 }
 
 ---
 
-## 👥 3. Participant Contribution Breakdown
+## 🤝 3. Key Decisions & Agreements
+${decisions.length > 0
+    ? decisions.map(d => `- ✅ **${d.speaker}**: ${d.text}`).join('\n')
+    : "- Core consensus maintained across all discussion points."
+}
+
+---
+
+## 🎯 4. Objectives & Agendas
+${categorizedTopics.goals.length > 0
+    ? categorizedTopics.goals.map(g => `- 🎯 **${g.speaker}**: "${g.text}"`).join('\n')
+    : "- General project milestones and discussion."
+}
+
+---
+
+## 🚀 5. Progress & Updates
+${categorizedTopics.progress.length > 0
+    ? categorizedTopics.progress.map(p => `- 🚀 **${p.speaker}**: "${p.text}"`).join('\n')
+    : "- Status updates exchanged by participants."
+}
+
+---
+
+## ⚠️ 6. Challenges & Blockers
+${categorizedTopics.blockers.length > 0
+    ? categorizedTopics.blockers.map(b => `- ⚠️ **${b.speaker}**: "${b.text}"`).join('\n')
+    : "- No critical blockers reported during this session."
+}
+
+---
+
+## 👥 7. Participant Contribution Breakdown
 ${participantsList.map(p => {
     const pLogs = speakerMap[p] || []
     return `### 👤 ${p} (${pLogs.length} statements)
 ${pLogs.slice(0, 5).map(t => `- "${t}"`).join('\n')}${pLogs.length > 5 ? `\n- *...and ${pLogs.length - 5} more statements*` : ''}`
 }).join('\n\n')}
 
----
-
-## 🛠️ 4. Action Items & Next Steps
-${actionItems.length > 0 
-    ? actionItems.map(item => `- [ ] ${item}`).join('\n') 
-    : "- [ ] Follow up on discussed agenda items."
-}
-
----
-
-## 🤝 5. Key Decisions & Agreements
-${decisions.length > 0 
-    ? decisions.map(dec => `- ✅ ${dec}`).join('\n') 
-    : "- Core consensus maintained across all discussion points."
-}
-
 ${questions.length > 0 ? `
 ---
 
-## ❓ 6. Questions & Inquiries Raised
-${questions.map(q => `- ${q}`).join('\n')}
+## ❓ 8. Questions & Queries Raised
+${questions.map(q => `- ❓ **${q.speaker}**: "${q.text}"`).join('\n')}
 ` : ''}
 
 ---
 
-## 🗒️ 7. Full Chronological Transcript
+## 🗒️ 9. Chronological Diarized Transcript
 \`\`\`text
-${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
+${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join('\n')}
 \`\`\`
 `.trim()
+
+        return {
+            executiveNarrative: narrative,
+            stats: {
+                totalStatements,
+                participantCount: participantsList.length,
+                wordsSpoken: totalWords,
+                formattedDuration: durationStr
+            },
+            actionItems,
+            decisions,
+            categorizedTopics,
+            questions,
+            speakerContributions: participantsList.map(p => ({
+                name: p,
+                count: (speakerMap[p] || []).length,
+                statements: speakerMap[p] || []
+            })),
+            markdownReport
+        }
     }
 
     // Zoom-inspired custom layout states
@@ -606,21 +764,21 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
         if (recognitionRef.current) {
             try {
                 recognitionRef.current.stop()
+                isRecognizingRef.current = false
+                isSpeechStartingRef.current = false
             } catch (e) {}
             
             recognitionRef.current.lang = transcriptionLang
             
             const currentMuted = !localStreamRef.current?.getAudioTracks()[0]?.enabled
-            if (localStreamRef.current && !currentMuted) {
+            if (localStreamRef.current && !currentMuted && isAiRecordingRef.current) {
                 // Short timeout to let the recognition engine shut down cleanly before starting again
                 setTimeout(() => {
-                    try {
-                        recognitionRef.current?.start()
-                    } catch (e) {}
+                    startSpeechEngine()
                 }, 300)
             }
         }
-    }, [transcriptionLang])
+    }, [transcriptionLang, startSpeechEngine])
 
     // ---- Helper: add in-call visual notification ----
     const addNotification = (text, type = "info") => {
@@ -912,13 +1070,13 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
             // Sync local Speech recognition with mute toggle
             if (recognitionRef.current && isAiRecordingRef.current) {
                 if (newEnabled) {
-                    try {
-                        recognitionRef.current.start()
-                    } catch (e) {}
+                    startSpeechEngine()
                 } else {
                     if (speechRestartTimeoutRef.current) clearTimeout(speechRestartTimeoutRef.current)
                     try {
                         recognitionRef.current.stop()
+                        isRecognizingRef.current = false
+                        isSpeechStartingRef.current = false
                     } catch (e) {}
                 }
             }
@@ -1043,20 +1201,21 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
         setHasVoted(true)
     }
 
-    // ---- AI Notes Real-time Compiler ----
-    useEffect(() => {
-        setSummaryText(generateMeetingSummary(transcriptLogs, code, meetingDuration))
-    }, [transcriptLogs, code, meetingDuration])
+    // ---- AI Meeting Minutes Intelligence Compiler ----
+    const meetingMinutes = useMemo(() => {
+        return generateStructuredMinutes(transcriptLogs, code, meetingDuration)
+    }, [transcriptLogs, code, meetingDuration, lastSummaryRefreshTime])
 
     const downloadSummaryFile = () => {
-        const fullMarkdownReport = generateMeetingSummary(transcriptLogs, code, meetingDuration)
+        const fullMarkdownReport = meetingMinutes.markdownReport
         const element = document.createElement("a")
         const file = new Blob([fullMarkdownReport], { type: 'text/markdown;charset=utf-8' })
         element.href = URL.createObjectURL(file)
-        element.download = `Meeting_Summary_${code}.md`
+        element.download = `Meeting_Minutes_${code}.md`
         document.body.appendChild(element)
         element.click()
         document.body.removeChild(element)
+        addNotification("Meeting minutes downloaded as Markdown file.", "info")
     }
 
     // Toggle sidebar tabs on bottom controls clicks like Zoom
@@ -1224,13 +1383,19 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                 }
             }
 
-            // Web Speech API initialization
+            // Web Speech API initialization with robust mobile resilience
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
             if (SpeechRecognition) {
                 const rec = new SpeechRecognition()
                 rec.continuous = true
                 rec.interimResults = true
                 rec.lang = transcriptionLang
+
+                rec.onstart = () => {
+                    isRecognizingRef.current = true
+                    isSpeechStartingRef.current = false
+                    setSpeechGestureNeeded(false)
+                }
 
                 rec.onresult = (event) => {
                     let interimText = ''
@@ -1245,50 +1410,61 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
 
                     const activeText = (finalText || interimText).trim()
                     if (activeText && activeText.length >= 3) {
-                        socketRef.current?.emit('user-speech', activeText, finalText !== '')
-                        setActiveSubtitles({ sender: "You", text: activeText })
+                        const lower = activeText.toLowerCase()
+                        if (HALLUCINATION_PHRASES.some(phrase => lower.includes(phrase))) {
+                            return
+                        }
 
-                        if (finalText !== '') {
-                            if (localSpeechTimeoutRef.current) clearTimeout(localSpeechTimeoutRef.current)
-                            cleanAndCommitSpeech("You", finalText)
-                        } else {
+                        setActiveSubtitles({ sender: "You", text: activeText })
+                        if (subtitlesClearTimeoutRef.current) clearTimeout(subtitlesClearTimeoutRef.current)
+                        subtitlesClearTimeoutRef.current = setTimeout(() => {
+                            setActiveSubtitles(null)
+                        }, 3500)
+
+                        const isFinal = (finalText !== '')
+                        socketRef.current?.emit('user-speech', activeText, isFinal)
+
+                        if (!isFinal) {
                             // Mobile Android debounce fallback: commit text after 1.5s silence if isFinal is never emitted
                             if (localSpeechTimeoutRef.current) clearTimeout(localSpeechTimeoutRef.current)
                             localSpeechTimeoutRef.current = setTimeout(() => {
-                                cleanAndCommitSpeech("You", activeText)
                                 socketRef.current?.emit('user-speech', activeText, true)
                             }, 1500)
+                        } else {
+                            if (localSpeechTimeoutRef.current) clearTimeout(localSpeechTimeoutRef.current)
                         }
                     }
                 }
 
-                rec.onend = () => {
-                    if (!isAiRecordingRef.current) return
-                    const currentMuted = !localStreamRef.current?.getAudioTracks()[0]?.enabled
-                    if (localStreamRef.current && !currentMuted) {
-                        if (speechRestartTimeoutRef.current) clearTimeout(speechRestartTimeoutRef.current)
-                        speechRestartTimeoutRef.current = setTimeout(() => {
-                            if (isAiRecordingRef.current && recognitionRef.current) {
-                                try {
-                                    recognitionRef.current.start()
-                                } catch (e) {}
-                            }
-                        }, 1500)
+                rec.onerror = (event) => {
+                    isSpeechStartingRef.current = false
+                    if (event.error === 'not-allowed') {
+                        isRecognizingRef.current = false
+                        setSpeechGestureNeeded(true)
+                    } else if (event.error === 'no-speech' || event.error === 'audio-capture' || event.error === 'network') {
+                        isRecognizingRef.current = false
                     }
                 }
 
-                rec.onerror = (event) => {
-                    console.error("Speech Recognition Error:", event.error)
+                rec.onend = () => {
+                    isRecognizingRef.current = false
+                    isSpeechStartingRef.current = false
+                    if (!isAiRecordingRef.current) return
+                    const currentMuted = !localStreamRef.current?.getAudioTracks()[0]?.enabled
+                    if (localStreamRef.current && !currentMuted && !speechGestureNeeded) {
+                        if (speechRestartTimeoutRef.current) clearTimeout(speechRestartTimeoutRef.current)
+                        speechRestartTimeoutRef.current = setTimeout(() => {
+                            if (isAiRecordingRef.current && !isRecognizingRef.current) {
+                                startSpeechEngine()
+                            }
+                        }, 800)
+                    }
                 }
 
                 recognitionRef.current = rec
                 
                 if (stream.getAudioTracks()[0]?.enabled) {
-                    try {
-                        rec.start()
-                    } catch (e) {
-                        console.error("Speech Recognition starting error:", e)
-                    }
+                    startSpeechEngine()
                 }
             } else {
                 console.warn("Speech Recognition not supported in this browser.")
@@ -1478,30 +1654,38 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                 }
             })
 
-            // Speech transcription broadcast receiver (Captures speech from all participants)
-            socketRef.current.on('user-speech', (speechData) => {
-                const { senderId, name, text, isFinal } = speechData
-                const senderName = name || "Participant"
-                const activeId = senderId || senderName
-                if (!text || text.trim().length < 3) return
-                setActiveSubtitles({ sender: senderName, text: text.trim() })
-
-                if (isFinal) {
-                    if (remoteSpeechTimeoutsRef.current[activeId]) {
-                        clearTimeout(remoteSpeechTimeoutsRef.current[activeId])
-                        delete remoteSpeechTimeoutsRef.current[activeId]
-                    }
-                    cleanAndCommitSpeech(senderName, text)
-                } else {
-                    // Mobile Android fallback: commit remote interim speech if no new text arrives within 1.5s
-                    if (remoteSpeechTimeoutsRef.current[activeId]) {
-                        clearTimeout(remoteSpeechTimeoutsRef.current[activeId])
-                    }
-                    remoteSpeechTimeoutsRef.current[activeId] = setTimeout(() => {
-                        cleanAndCommitSpeech(senderName, text)
-                        delete remoteSpeechTimeoutsRef.current[activeId]
-                    }, 1500)
+            // Centralized Room Transcript Initial Sync
+            socketRef.current.on('room-transcript-sync', (syncedLogs) => {
+                if (Array.isArray(syncedLogs)) {
+                    setTranscriptLogs(syncedLogs)
                 }
+            })
+
+            // Real-time synchronized transcript entry broadcast from server (Captures speech from both ends)
+            socketRef.current.on('new-transcript-entry', (entry) => {
+                if (!entry || !entry.text) return
+                setTranscriptLogs((prev) => {
+                    if (prev.some(item => item.id === entry.id)) return prev
+                    return [...prev, entry]
+                })
+            })
+
+            // Transcripts cleared broadcast
+            socketRef.current.on('transcripts-cleared', () => {
+                setTranscriptLogs([])
+                setCompletedActionIds({})
+            })
+
+            // Speech transcription broadcast receiver (Captures live subtitles from all participants)
+            socketRef.current.on('user-speech', (speechData) => {
+                const { name, text } = speechData
+                const senderName = name || "Participant"
+                if (!text || text.trim().length < 2) return
+                setActiveSubtitles({ sender: senderName, text: text.trim() })
+                if (subtitlesClearTimeoutRef.current) clearTimeout(subtitlesClearTimeoutRef.current)
+                subtitlesClearTimeoutRef.current = setTimeout(() => {
+                    setActiveSubtitles(null)
+                }, 3500)
             })
 
             // Host Transfer Listener (Make Host)
@@ -1522,6 +1706,12 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                 setParticipants(prev => ({
                     ...prev,
                     [userId]: newName
+                }))
+                setTranscriptLogs(prev => prev.map(entry => {
+                    if (entry.senderId === userId) {
+                        return { ...entry, name: newName }
+                    }
+                    return entry
                 }))
                 setWhiteboardSharer(prev => (prev && prev.id === userId ? { ...prev, name: newName } : prev))
                 addNotification(`${oldName} changed their name to "${newName}".`, "info")
@@ -1571,11 +1761,15 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
                     socketRef.current?.emit('toggle-mute', shouldMute)
                     addNotification(shouldMute ? "You have been muted by the host." : "You have been unmuted by the host.", "info")
 
-                    if (recognitionRef.current) {
+                    if (recognitionRef.current && isAiRecordingRef.current) {
                         if (!shouldMute) {
-                            try { recognitionRef.current.start() } catch (e) {}
+                            startSpeechEngine()
                         } else {
-                            try { recognitionRef.current.stop() } catch (e) {}
+                            try {
+                                recognitionRef.current.stop()
+                                isRecognizingRef.current = false
+                                isSpeechStartingRef.current = false
+                            } catch (e) {}
                         }
                     }
                 }
@@ -2351,81 +2545,358 @@ ${logs.map(log => `[${log.timestamp}] ${log.name}: ${log.text}`).join('\n')}
 
                         {sidebarTab === 'notes' && (
                             <div className="notes-tab-panel">
+                                {/* Header with Title, Status Pill, Lang, Actions */}
                                 <div className="notes-header-row">
-                                    <h4>AI Meeting Minutes</h4>
-                                    
-                                    {/* AI Recording Pause/Resume Button */}
-                                    <button 
-                                        className={`ai-record-toggle-btn ${isAiRecording ? 'active' : ''}`}
-                                        onClick={toggleAiRecording}
-                                        title="Toggle AI Speech Transcription"
-                                    >
-                                        {isAiRecording ? "🎙️ Active" : "⏸️ Paused"}
-                                    </button>
-
-                                    {/* Transcription Language Selector Dropdown (resolves Hindi/Hinglish transcription drops) */}
-                                    <div className="transcription-lang-selector">
-                                        <select 
-                                            value={transcriptionLang} 
-                                            onChange={(e) => setTranscriptionLang(e.target.value)}
-                                            title="Speech Recognition Language"
-                                        >
-                                            <option value="en-IN">🇮🇳 English (India / Hinglish)</option>
-                                            <option value="hi-IN">🇮🇳 हिन्दी (Hindi)</option>
-                                            <option value="en-US">🇺🇸 English (US)</option>
-                                            <option value="en-GB">🇬🇧 English (UK)</option>
-                                        </select>
-                                    </div>
-
-                                    <button className="notes-clear-btn" onClick={clearTranscriptLogs} title="Clear inaccurate speech notes">
-                                        🧹 Clear
-                                    </button>
-
-                                    <button className="summary-dl-btn" onClick={downloadSummaryFile} title="Download structured markdown report">
-                                        📥 Download .MD
-                                    </button>
-                                </div>
-                                <p className="notes-description">
-                                    Speech is transcribed and parsed automatically into tasks, summaries, and speaker diarization notes.
-                                </p>
-
-                                <div className="notes-divider"></div>
-
-                                {/* Live Summary Block */}
-                                <div className="notes-block-section">
-                                    <div className="notes-section-title">✨ Live AI Meeting Minutes</div>
-                                    <div className="live-summary-container">
-                                        <div className="markdown-live-body">
-                                            {transcriptLogs.length === 0 ? (
-                                                <p className="waiting-placeholder">Waiting for participants to speak to build summary...</p>
+                                    <div className="notes-title-col">
+                                        <div className="notes-title-badge-wrap">
+                                            <h4 className="notes-main-title">AI Meeting Minutes</h4>
+                                            <span className="notes-counter-badge">{transcriptLogs.length} statements</span>
+                                        </div>
+                                        <div className="notes-live-badge-row">
+                                            {!isAiRecording ? (
+                                                <button className="ai-status-pill paused" onClick={toggleAiRecording} title="Click to resume speech transcription">
+                                                    ⏸️ Paused
+                                                </button>
+                                            ) : speechGestureNeeded ? (
+                                                <button className="ai-status-pill action-needed" onClick={startSpeechEngine} title="Tap here to grant mic speech access on mobile">
+                                                    👉 Tap to Start Mic AI
+                                                </button>
                                             ) : (
-                                                <pre className="summary-pre-text">{summaryText}</pre>
+                                                <span className="ai-status-pill active">
+                                                    🟢 Live Listening
+                                                </span>
                                             )}
                                         </div>
                                     </div>
-                                </div>
 
-                                {/* Live Diarization logs List */}
-                                <div className="notes-block-section flex-expand">
-                                    <div className="notes-section-title">🗒️ Live Diarized Transcript</div>
-                                    <div className="transcript-live-feed">
-                                        {transcriptLogs.length === 0 ? (
-                                            <div className="empty-notes-state">
-                                                No speech recorded. Unmute microphone and start speaking to diarize notes.
-                                            </div>
-                                        ) : (
-                                            transcriptLogs.map((log, idx) => (
-                                                <div key={idx} className="transcript-log-item">
-                                                    <div className="log-meta">
-                                                        <span className="log-speaker">{log.name}</span>
-                                                        <span className="log-time">{log.timestamp}</span>
-                                                    </div>
-                                                    <p className="log-text">"{log.text}"</p>
-                                                </div>
-                                            ))
-                                        )}
+                                    <div className="notes-actions-top-row">
+                                        {/* Language Selector */}
+                                        <div className="transcription-lang-selector">
+                                            <select 
+                                                value={transcriptionLang} 
+                                                onChange={(e) => setTranscriptionLang(e.target.value)}
+                                                title="Speech Recognition Language"
+                                            >
+                                                <option value="en-IN">🇮🇳 Hinglish</option>
+                                                <option value="hi-IN">🇮🇳 हिन्दी</option>
+                                                <option value="en-US">🇺🇸 EN (US)</option>
+                                                <option value="en-GB">🇬🇧 EN (UK)</option>
+                                            </select>
+                                        </div>
+
+                                        <button 
+                                            className={`notes-icon-btn refresh-btn ${isRefreshingSummary ? 'spin' : ''}`}
+                                            onClick={handleRefreshSummary}
+                                            title="Refresh AI Summary & Minutes"
+                                        >
+                                            ⚡ Refresh
+                                        </button>
+
+                                        <button 
+                                            className="notes-icon-btn copy-btn"
+                                            onClick={() => copySummaryToClipboard(meetingMinutes)}
+                                            title="Copy Summary to Clipboard"
+                                        >
+                                            📋 Copy
+                                        </button>
+
+                                        <button 
+                                            className="notes-icon-btn dl-btn"
+                                            onClick={downloadSummaryFile}
+                                            title="Download Formatted Markdown Report (.md)"
+                                        >
+                                            📥 .MD
+                                        </button>
+
+                                        <button 
+                                            className="notes-icon-btn clear-btn"
+                                            onClick={clearTranscriptLogs}
+                                            title="Clear Meeting Notes for everyone"
+                                        >
+                                            🧹 Clear
+                                        </button>
                                     </div>
                                 </div>
+
+                                {/* Mobile User Gesture Alert Banner if required */}
+                                {speechGestureNeeded && isAiRecording && (
+                                    <div className="speech-gesture-prompt-banner" onClick={startSpeechEngine}>
+                                        <span className="prompt-icon">🎙️</span>
+                                        <div className="prompt-text">
+                                            <strong>Enable Speech-to-Text:</strong> Tap here to activate your microphone transcription.
+                                        </div>
+                                        <button className="prompt-tap-btn">Activate</button>
+                                    </div>
+                                )}
+
+                                {/* Subtab Navigation (Summary | Action Items | Transcript) */}
+                                <div className="ai-subtabs-nav">
+                                    <button 
+                                        className={`ai-subtab-btn ${aiSubtab === 'summary' ? 'active' : ''}`}
+                                        onClick={() => setAiSubtab('summary')}
+                                    >
+                                        📑 Smart Summary
+                                    </button>
+                                    <button 
+                                        className={`ai-subtab-btn ${aiSubtab === 'actions' ? 'active' : ''}`}
+                                        onClick={() => setAiSubtab('actions')}
+                                    >
+                                        ✅ Tasks & Actions
+                                        {meetingMinutes.actionItems.length > 0 && (
+                                            <span className="subtab-count-pill">
+                                                {meetingMinutes.actionItems.filter(a => completedActionIds[a.id]).length}/{meetingMinutes.actionItems.length}
+                                            </span>
+                                        )}
+                                    </button>
+                                    <button 
+                                        className={`ai-subtab-btn ${aiSubtab === 'transcript' ? 'active' : ''}`}
+                                        onClick={() => setAiSubtab('transcript')}
+                                    >
+                                        🗒️ Transcript
+                                        <span className="subtab-count-pill">{transcriptLogs.length}</span>
+                                    </button>
+                                </div>
+
+                                {/* Content of Subtabs */}
+                                <div className="ai-subtab-content">
+                                    {aiSubtab === 'summary' && (
+                                        <div className="summary-tab-content">
+                                            {/* Meeting Quick Metrics */}
+                                            <div className="meeting-stats-strip">
+                                                <div className="stat-chip">
+                                                    <span className="chip-label">⏱️ Duration</span>
+                                                    <span className="chip-val">{meetingMinutes.stats.formattedDuration}</span>
+                                                </div>
+                                                <div className="stat-chip">
+                                                    <span className="chip-label">👥 Speakers</span>
+                                                    <span className="chip-val">{meetingMinutes.stats.participantCount}</span>
+                                                </div>
+                                                <div className="stat-chip">
+                                                    <span className="chip-label">💬 Words</span>
+                                                    <span className="chip-val">{meetingMinutes.stats.wordsSpoken}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Executive Narrative Card */}
+                                            <div className="exec-narrative-card">
+                                                <div className="card-header-line">
+                                                    <span className="card-title">📌 Executive Overview</span>
+                                                    <span className="card-meta-tag">AI Generated</span>
+                                                </div>
+                                                <p className="exec-narrative-p">
+                                                    {meetingMinutes.executiveNarrative}
+                                                </p>
+                                            </div>
+
+                                            {/* Confirmed Decisions Section */}
+                                            {meetingMinutes.decisions.length > 0 && (
+                                                <div className="decisions-card">
+                                                    <div className="card-header-line">
+                                                        <span className="card-title">🤝 Key Decisions & Agreements</span>
+                                                        <span className="card-badge green">{meetingMinutes.decisions.length} Ratified</span>
+                                                    </div>
+                                                    <div className="decisions-list">
+                                                        {meetingMinutes.decisions.map((dec, idx) => (
+                                                            <div key={idx} className="decision-item-row">
+                                                                <span className="dec-icon">✅</span>
+                                                                <div className="dec-body">
+                                                                    <span className="dec-speaker">{dec.speaker}:</span>
+                                                                    <span className="dec-text">{dec.text}</span>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Categorized Topic Clusters */}
+                                            <div className="topic-clusters-grid">
+                                                {meetingMinutes.categorizedTopics.goals.length > 0 && (
+                                                    <div className="topic-card goals">
+                                                        <div className="topic-card-title">🎯 Goals & Agendas</div>
+                                                        <ul>
+                                                            {meetingMinutes.categorizedTopics.goals.map((g, i) => (
+                                                                <li key={i}><strong>{g.speaker}:</strong> "{g.text}"</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+
+                                                {meetingMinutes.categorizedTopics.progress.length > 0 && (
+                                                    <div className="topic-card progress">
+                                                        <div className="topic-card-title">🚀 Progress & Updates</div>
+                                                        <ul>
+                                                            {meetingMinutes.categorizedTopics.progress.map((p, i) => (
+                                                                <li key={i}><strong>{p.speaker}:</strong> "{p.text}"</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+
+                                                {meetingMinutes.categorizedTopics.blockers.length > 0 && (
+                                                    <div className="topic-card blockers">
+                                                        <div className="topic-card-title">⚠️ Blockers & Concerns</div>
+                                                        <ul>
+                                                            {meetingMinutes.categorizedTopics.blockers.map((b, i) => (
+                                                                <li key={i}><strong>{b.speaker}:</strong> "{b.text}"</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+
+                                                {meetingMinutes.categorizedTopics.proposals.length > 0 && (
+                                                    <div className="topic-card proposals">
+                                                        <div className="topic-card-title">💡 Ideas & Proposals</div>
+                                                        <ul>
+                                                            {meetingMinutes.categorizedTopics.proposals.map((pr, i) => (
+                                                                <li key={i}><strong>{pr.speaker}:</strong> "{pr.text}"</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Questions Raised */}
+                                            {meetingMinutes.questions.length > 0 && (
+                                                <div className="questions-card">
+                                                    <div className="card-header-line">
+                                                        <span className="card-title">❓ Inquiries & Questions</span>
+                                                    </div>
+                                                    <div className="questions-list">
+                                                        {meetingMinutes.questions.map((q, idx) => (
+                                                            <div key={idx} className="question-item-row">
+                                                                <span className="q-badge">Q:</span>
+                                                                <span className="q-speaker"><strong>{q.speaker}</strong> asked:</span>
+                                                                <span className="q-text">"{q.text}"</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {aiSubtab === 'actions' && (
+                                        <div className="actions-tab-content">
+                                            <div className="actions-header-bar">
+                                                <div className="actions-progress-info">
+                                                    <strong>Action Items & Deliverables</strong>
+                                                    <span className="actions-ratio">
+                                                        {meetingMinutes.actionItems.filter(a => completedActionIds[a.id]).length} of {meetingMinutes.actionItems.length} completed
+                                                    </span>
+                                                </div>
+                                                {meetingMinutes.actionItems.length > 0 && (
+                                                    <div className="actions-progress-track">
+                                                        <div 
+                                                            className="actions-progress-bar"
+                                                            style={{
+                                                                width: `${(meetingMinutes.actionItems.filter(a => completedActionIds[a.id]).length / meetingMinutes.actionItems.length) * 100}%`
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {meetingMinutes.actionItems.length === 0 ? (
+                                                <div className="empty-actions-state">
+                                                    <span className="empty-icon">📝</span>
+                                                    <h4>No Action Items Detected Yet</h4>
+                                                    <p>Speak in the meeting or use the note box below. Tasks mentioned with "I will...", "We need to...", or "karna hai" automatically convert into actionable to-dos.</p>
+                                                </div>
+                                            ) : (
+                                                <div className="action-items-list">
+                                                    {meetingMinutes.actionItems.map((item) => {
+                                                        const isDone = !!completedActionIds[item.id]
+                                                        return (
+                                                            <div 
+                                                                key={item.id} 
+                                                                className={`action-item-card ${isDone ? 'completed' : ''}`}
+                                                                onClick={() => toggleActionItem(item.id)}
+                                                            >
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    className="action-check-input" 
+                                                                    checked={isDone} 
+                                                                    onChange={() => toggleActionItem(item.id)}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                />
+                                                                <div className="action-body">
+                                                                    <div className="action-top">
+                                                                        <span className="action-assignee-badge">@{item.assignee}</span>
+                                                                        <span className="action-status-label">{isDone ? "Done" : "Pending"}</span>
+                                                                    </div>
+                                                                    <p className="action-task-text">{item.text}</p>
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {aiSubtab === 'transcript' && (
+                                        <div className="transcript-tab-content">
+                                            <div className="transcript-search-row">
+                                                <input 
+                                                    type="text" 
+                                                    className="transcript-search-input"
+                                                    placeholder="🔍 Filter transcript by speaker or keywords..."
+                                                    value={transcriptSearch}
+                                                    onChange={(e) => setTranscriptSearch(e.target.value)}
+                                                />
+                                                {transcriptSearch && (
+                                                    <button className="clear-search-btn" onClick={() => setTranscriptSearch("")}>✕</button>
+                                                )}
+                                            </div>
+
+                                            <div className="transcript-live-feed">
+                                                {transcriptLogs.length === 0 ? (
+                                                    <div className="empty-notes-state">
+                                                        No speech recorded. Unmute microphone and start speaking to diarize notes.
+                                                    </div>
+                                                ) : (
+                                                    transcriptLogs
+                                                        .filter(log => {
+                                                            if (!transcriptSearch.trim()) return true
+                                                            const q = transcriptSearch.toLowerCase()
+                                                            return (log.name || "").toLowerCase().includes(q) || (log.text || "").toLowerCase().includes(q)
+                                                        })
+                                                        .map((log, idx) => {
+                                                            const isMe = (log.senderId === socketRef.current?.id || log.name === displayName)
+                                                            return (
+                                                                <div key={log.id || idx} className={`transcript-log-item ${isMe ? 'is-self' : ''}`}>
+                                                                    <div className="log-meta">
+                                                                        <div className="speaker-meta-col">
+                                                                            <span className="log-avatar-chip">{log.name?.charAt(0)?.toUpperCase() || "P"}</span>
+                                                                            <span className="log-speaker">{log.name} {isMe && <span className="self-tag">(You)</span>}</span>
+                                                                            {log.isManual && <span className="manual-note-badge">Manual Note</span>}
+                                                                        </div>
+                                                                        <span className="log-time">{log.timestamp}</span>
+                                                                    </div>
+                                                                    <p className="log-text">"{log.text}"</p>
+                                                                </div>
+                                                            )
+                                                        })
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Persistent Bottom Quick Note Input (Available across all subtabs) */}
+                                <form className="manual-note-input-row" onSubmit={handleAddManualNote}>
+                                    <input 
+                                        type="text" 
+                                        className="manual-note-input"
+                                        placeholder="💬 Type a key point, decision or task..."
+                                        value={manualNoteInput}
+                                        onChange={(e) => setManualNoteInput(e.target.value)}
+                                    />
+                                    <button type="submit" className="manual-note-send-btn" disabled={!manualNoteInput.trim()}>
+                                        ➕ Add
+                                    </button>
+                                </form>
                             </div>
                         )}
                     </div>
