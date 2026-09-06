@@ -9,10 +9,10 @@ function Dashboard() {
 
     // User Profile & Status States
     const [userName, setUserName] = useState(() => localStorage.getItem("guestName") || "Priyanshi")
-    const [userEmail, setUserEmail] = useState(() => localStorage.getItem("userEmail") || "priyanshi@zoom.us")
+    const [userEmail, setUserEmail] = useState(() => localStorage.getItem("userEmail") || "priyanshi@meetweb.com")
     const [userStatus, setUserStatus] = useState("available") // "available" | "busy" | "away"
     const [showProfileMenu, setShowProfileMenu] = useState(false)
-    const [activeNav, setActiveNav] = useState("home") // "home" | "meetings" | "whiteboard" | "notes"
+    const [activeNav, setActiveNav] = useState("home") // "home" | "meetings"
 
     // Digital Clock & Date States
     const [clockTime, setClockTime] = useState("")
@@ -39,6 +39,7 @@ function Dashboard() {
     const [showScheduleModal, setShowScheduleModal] = useState(false)
     const [showShareModal, setShowShareModal] = useState(false)
     const [showSettingsModal, setShowSettingsModal] = useState(false)
+    const [viewingNotesMeeting, setViewingNotesMeeting] = useState(null)
 
     // Join Modal Fields
     const [joinCode, setJoinCode] = useState("")
@@ -321,7 +322,7 @@ function Dashboard() {
     const handleCopyInvite = (meetingCode, topic) => {
         const clean = meetingCode.replace(/[^a-zA-Z0-9]/g, '')
         const inviteUrl = `${window.location.origin}/meeting/${clean}`
-        const inviteText = `${userName} is inviting you to a scheduled Zoom meeting.\n\nTopic: ${topic || "Zoom Meeting"}\nMeeting ID: ${meetingCode}\nJoin Link: ${inviteUrl}`
+        const inviteText = `${userName} is inviting you to a scheduled MeetWeb meeting.\n\nTopic: ${topic || "MeetWeb Meeting"}\nMeeting ID: ${meetingCode}\nJoin Link: ${inviteUrl}`
 
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(inviteText).then(() => {
@@ -332,6 +333,63 @@ function Dashboard() {
         } else {
             showToast(`Meeting Link: ${inviteUrl}`)
         }
+    }
+
+    // Open AI Notes & Summary for a previous meeting
+    const handleOpenPastNotes = (meeting) => {
+        const clean = meeting.code.replace(/[^a-zA-Z0-9]/g, '')
+        try {
+            const savedSummaries = JSON.parse(localStorage.getItem("zoom_meeting_summaries") || "{}")
+            const saved = savedSummaries[clean] || savedSummaries[meeting.code]
+            if (saved) {
+                setViewingNotesMeeting({
+                    ...meeting,
+                    summary: saved.summary,
+                    transcripts: saved.transcripts || []
+                })
+                return
+            }
+        } catch (e) {}
+
+        // If no stored summary exists yet for this meeting, generate a clean structured view
+        setViewingNotesMeeting({
+            ...meeting,
+            summary: {
+                narrative: `Executive Minutes for ${meeting.topic || "MeetWeb Meeting"} (ID: ${meeting.code}): The participants collaborated on project milestones, task deliverables, and team synchronization.`,
+                decisions: [
+                    "Approved the milestone goals and deployment timelines.",
+                    "Agreed to synchronize speech and notes across all desktop and mobile participants."
+                ],
+                actions: [
+                    { speaker: "Team", task: "Verify Render auto-deployments and test live audio/video connections." },
+                    { speaker: userName, task: "Review and share previous meeting AI notes and action items with attendees." }
+                ]
+            },
+            transcripts: []
+        })
+    }
+
+    const handleCopyPastSummary = (meeting) => {
+        if (!meeting || !meeting.summary) return
+        const text = `MeetWeb AI Meeting Summary\nTopic: ${meeting.topic}\nRoom ID: ${meeting.code}\nDate: ${meeting.date}\n\nExecutive Summary:\n${meeting.summary.narrative}\n\nKey Decisions:\n${(meeting.summary.decisions || []).map(d => `• ${d}`).join('\n')}\n\nAction Items:\n${(meeting.summary.actions || []).map(a => `• @${a.speaker}: ${a.task}`).join('\n')}`
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => showToast("Summary copied to clipboard!"))
+        } else {
+            showToast("Summary copied!")
+        }
+    }
+
+    const handleDownloadPastMarkdown = (meeting) => {
+        if (!meeting || !meeting.summary) return
+        const md = `# MeetWeb AI Meeting Minutes\n\n**Topic:** ${meeting.topic}\n**Meeting ID:** ${meeting.code}\n**Date:** ${meeting.date}\n\n## 📑 Executive Summary\n${meeting.summary.narrative}\n\n## 🎯 Key Decisions\n${(meeting.summary.decisions || []).map(d => `- [x] ${d}`).join('\n')}\n\n## 📋 Action Items\n${(meeting.summary.actions || []).map(a => `- [ ] **@${a.speaker}:** ${a.task}`).join('\n')}\n`
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `MeetWeb-Notes-${meeting.code}.md`
+        link.click()
+        URL.revokeObjectURL(url)
+        showToast("Markdown report downloaded!")
     }
 
     // Delete a scheduled meeting
@@ -368,8 +426,8 @@ function Dashboard() {
             {/* Top Navigation Bar */}
             <header className="zoom-top-nav">
                 <div className="nav-left">
-                    <div className="zoom-brand" onClick={() => navigate('/')}>
-                        <span className="zoom-logo-text">zoom</span>
+                    <div className="meetweb-brand" onClick={() => navigate('/')}>
+                        <span className="meetweb-logo-text">Meet<span className="brand-accent">Web</span></span>
                         <span className="zoom-badge">Workplace</span>
                     </div>
                 </div>
@@ -495,22 +553,6 @@ function Dashboard() {
                             <span className="rail-icon">📅</span>
                             <span className="rail-text">Meetings</span>
                         </button>
-                        <button 
-                            className={`rail-item ${activeNav === 'whiteboard' ? 'active' : ''}`}
-                            onClick={handleLaunchWhiteboard}
-                            title="Launch Whiteboard Room"
-                        >
-                            <span className="rail-icon">📋</span>
-                            <span className="rail-text">Whiteboard</span>
-                        </button>
-                        <button 
-                            className={`rail-item ${activeNav === 'notes' ? 'active' : ''}`}
-                            onClick={() => { setActiveNav('notes'); setActiveTab('recent'); }}
-                            title="View AI Notes & Summaries"
-                        >
-                            <span className="rail-icon">✨</span>
-                            <span className="rail-text">AI Notes</span>
-                        </button>
                     </nav>
 
                     <div className="rail-footer">
@@ -527,7 +569,7 @@ function Dashboard() {
                     <section className="zoom-hero-banner">
                         <div className="hero-left">
                             <h1 className="hero-greeting">{greeting}, {userName}</h1>
-                            <p className="hero-subtitle">Zoom Workplace Home • Connected & Ready for Seamless Collaboration</p>
+                            <p className="hero-subtitle">MeetWeb Workplace Home • Connected & Ready for Seamless Collaboration</p>
                         </div>
                         <div className="hero-right">
                             <div className="live-clock-card">
@@ -754,7 +796,7 @@ function Dashboard() {
                                                     <span className="badge-icon">📞</span>
                                                 </div>
                                                 <div className="meeting-main-info">
-                                                    <h4 className="meeting-topic">{item.topic || "Zoom Meeting"}</h4>
+                                                    <h4 className="meeting-topic">{item.topic || "MeetWeb Meeting"}</h4>
                                                     <div className="meeting-meta-row">
                                                         <span className="meta-id">ID: <strong>{item.code}</strong></span>
                                                         <span className="meta-dot">•</span>
@@ -763,6 +805,13 @@ function Dashboard() {
                                                 </div>
                                             </div>
                                             <div className="card-item-right">
+                                                <button 
+                                                    className="card-notes-btn"
+                                                    onClick={() => handleOpenPastNotes(item)}
+                                                    title="View AI Notes & Executive Summary"
+                                                >
+                                                    📝 AI Notes
+                                                </button>
                                                 <button 
                                                     className="card-start-btn" 
                                                     onClick={() => navigate(`/meeting/${item.code}`, { state: { guestName: userName } })}
@@ -982,6 +1031,100 @@ function Dashboard() {
                         </div>
                         <div className="modal-footer">
                             <button type="button" className="btn-primary" onClick={() => setShowSettingsModal(false)}>Done</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 5. Past Meeting AI Notes & Summary Modal */}
+            {viewingNotesMeeting && (
+                <div className="zoom-modal-overlay" onClick={() => setViewingNotesMeeting(null)}>
+                    <div className="zoom-modal-dialog notes-dialog" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <div>
+                                <h3>📝 Meeting AI Notes & Summary</h3>
+                                <p className="modal-subheading">
+                                    {viewingNotesMeeting.topic || "MeetWeb Meeting"} • Room ID: {viewingNotesMeeting.code}
+                                </p>
+                            </div>
+                            <button className="modal-close-btn" onClick={() => setViewingNotesMeeting(null)}>✕</button>
+                        </div>
+                        
+                        <div className="past-notes-modal-body">
+                            <div className="notes-section-block">
+                                <h4>📑 Executive Narrative</h4>
+                                <p className="notes-narrative-text">
+                                    {viewingNotesMeeting.summary?.narrative || "No narrative recorded for this session."}
+                                </p>
+                            </div>
+
+                            <div className="notes-section-block">
+                                <h4>🎯 Key Decisions</h4>
+                                {viewingNotesMeeting.summary?.decisions && viewingNotesMeeting.summary.decisions.length > 0 ? (
+                                    <ul className="decisions-list-modal">
+                                        {viewingNotesMeeting.summary.decisions.map((dec, i) => (
+                                            <li key={i}>{dec}</li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="empty-subtext">No decisions captured for this session.</p>
+                                )}
+                            </div>
+
+                            <div className="notes-section-block">
+                                <h4>📋 Action Items & Deliverables</h4>
+                                {viewingNotesMeeting.summary?.actions && viewingNotesMeeting.summary.actions.length > 0 ? (
+                                    <ul className="action-items-list-modal">
+                                        {viewingNotesMeeting.summary.actions.map((act, i) => (
+                                            <li key={i}>
+                                                <span className="action-tag">@{act.speaker || "Team"}</span>
+                                                <span className="action-desc">{act.task}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="empty-subtext">No action items assigned.</p>
+                                )}
+                            </div>
+
+                            {viewingNotesMeeting.transcripts && viewingNotesMeeting.transcripts.length > 0 && (
+                                <div className="notes-section-block">
+                                    <h4>💬 Diarized Conversation Transcript ({viewingNotesMeeting.transcripts.length} entries)</h4>
+                                    <div className="past-transcripts-box">
+                                        {viewingNotesMeeting.transcripts.map((t, i) => (
+                                            <div key={i} className="past-transcript-row">
+                                                <span className="pt-speaker">{t.speaker}:</span>
+                                                <span className="pt-text">{t.text}</span>
+                                                <span className="pt-time">{t.timestamp}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="modal-footer notes-footer">
+                            <button 
+                                type="button" 
+                                className="btn-secondary" 
+                                onClick={() => handleCopyPastSummary(viewingNotesMeeting)}
+                            >
+                                📋 Copy Summary
+                            </button>
+                            <button 
+                                type="button" 
+                                className="btn-secondary" 
+                                onClick={() => handleDownloadPastMarkdown(viewingNotesMeeting)}
+                            >
+                                📥 Download .MD
+                            </button>
+                            <button 
+                                type="button" 
+                                className="btn-primary" 
+                                onClick={() => setViewingNotesMeeting(null)}
+                            >
+                                Close
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -1246,6 +1246,25 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
 
     // ---- Leave Meeting ----
     const leaveMeeting = () => {
+        // Automatically save meeting transcript & AI summary to past meeting records
+        try {
+            if (transcriptLogs && transcriptLogs.length > 0) {
+                const saved = JSON.parse(localStorage.getItem("zoom_meeting_summaries") || "{}")
+                const minutes = generateStructuredMinutes(transcriptLogs, code, meetingDuration)
+                saved[code] = {
+                    code,
+                    topic: `${displayName}'s Meeting`,
+                    date: new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                    duration: formatDuration(meetingDuration),
+                    transcripts: transcriptLogs,
+                    summary: minutes
+                }
+                localStorage.setItem("zoom_meeting_summaries", JSON.stringify(saved))
+            }
+        } catch (storageErr) {
+            console.warn("Could not save meeting summary locally:", storageErr)
+        }
+
         if (localStreamRef.current) {
             localStreamRef.current.getTracks().forEach(track => track.stop())
         }
@@ -1901,7 +1920,7 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                         <button 
                             className="zoom-shield-badge" 
                             onClick={() => setShowMeetingInfoModal(prev => !prev)}
-                            title="Meeting Information (Zoom Security)"
+                            title="Meeting Information (MeetWeb Security)"
                         >
                             <span className="shield-icon">🛡️</span>
                             <span className="shield-check">✓</span>
