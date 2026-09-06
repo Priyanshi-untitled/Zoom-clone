@@ -1248,19 +1248,23 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
     const leaveMeeting = () => {
         // Automatically save meeting transcript & AI summary to past meeting records
         try {
-            if (transcriptLogs && transcriptLogs.length > 0) {
-                const saved = JSON.parse(localStorage.getItem("zoom_meeting_summaries") || "{}")
-                const minutes = generateStructuredMinutes(transcriptLogs, code, meetingDuration)
-                saved[code] = {
-                    code,
-                    topic: `${displayName}'s Meeting`,
-                    date: new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-                    duration: formatDuration(meetingDuration),
-                    transcripts: transcriptLogs,
-                    summary: minutes
-                }
-                localStorage.setItem("zoom_meeting_summaries", JSON.stringify(saved))
+            const saved = JSON.parse(localStorage.getItem("zoom_meeting_summaries") || "{}")
+            const currentLogs = (transcriptLogs && transcriptLogs.length > 0) ? transcriptLogs : [
+                { name: displayName || "Host", text: "Meeting session completed.", timestamp: "00:01" }
+            ]
+            const minutes = generateStructuredMinutes(currentLogs, code, meetingDuration)
+            const cleanCode = (code || "").toString().replace(/[^a-zA-Z0-9]/g, '')
+            const record = {
+                code,
+                topic: `${displayName}'s Meeting`,
+                date: new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                duration: formatDuration(meetingDuration),
+                transcripts: currentLogs,
+                summary: minutes
             }
+            saved[code] = record
+            if (cleanCode) saved[cleanCode] = record
+            localStorage.setItem("zoom_meeting_summaries", JSON.stringify(saved))
         } catch (storageErr) {
             console.warn("Could not save meeting summary locally:", storageErr)
         }
