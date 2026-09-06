@@ -2229,29 +2229,6 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                             <span className="zoom-btn-label">Chat <span className="chevron-up">^</span></span>
                         </button>
 
-                        <button 
-                            className={`zoom-btn desktop-only-control ${showSidebar && sidebarTab === 'polls' ? 'active' : ''}`} 
-                            onClick={() => handleToggleSidebarTab('polls')}
-                        >
-                            <span className="zoom-btn-icon">📊</span>
-                            <span className="zoom-btn-label">Polls <span className="chevron-up">^</span></span>
-                        </button>
-
-                        {/* Reaction button */}
-                        <button 
-                            className={`zoom-btn desktop-only-control ${showReactPopover ? 'active' : ''}`}
-                            onClick={() => {
-                                setShowReactPopover(prev => !prev);
-                                setShowShareMenu(false);
-                                setShowHostPopover(false);
-                                setShowMoreMenu(false);
-                            }}
-                            title="Emoji Reactions"
-                        >
-                            <span className="zoom-btn-icon">❤️</span>
-                            <span className="zoom-btn-label">React</span>
-                        </button>
-
                         {/* Share dropdown button */}
                         <button 
                             className={`zoom-btn green-btn ${showShareMenu ? 'active' : ''}`} 
@@ -2267,29 +2244,19 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                             <span className="zoom-btn-label">Share <span className="chevron-up">^</span></span>
                         </button>
 
-                        {/* Security / Host actions (Available for the Room Host) */}
-                        {isHost && (
-                            <button 
-                                className={`zoom-btn desktop-only-control ${showHostPopover ? 'active' : ''}`} 
-                                onClick={() => {
-                                    setShowHostPopover(prev => !prev);
-                                    setShowShareMenu(false);
-                                    setShowReactPopover(false);
-                                    setShowMoreMenu(false);
-                                }}
-                                title="Host Security Tools"
-                            >
-                                <span className="zoom-btn-icon">🛡️</span>
-                                <span className="zoom-btn-label">Host tools</span>
-                            </button>
-                        )}
-
+                        {/* Reaction button */}
                         <button 
-                            className={`zoom-btn desktop-only-control ${showSidebar && sidebarTab === 'notes' ? 'active' : ''}`} 
-                            onClick={() => handleToggleSidebarTab('notes')}
+                            className={`zoom-btn ${showReactPopover ? 'active' : ''}`}
+                            onClick={() => {
+                                setShowReactPopover(prev => !prev);
+                                setShowShareMenu(false);
+                                setShowHostPopover(false);
+                                setShowMoreMenu(false);
+                            }}
+                            title="Emoji Reactions"
                         >
-                            <span className="zoom-btn-icon">✨</span>
-                            <span className="zoom-btn-label">Zoom AI</span>
+                            <span className="zoom-btn-icon">❤️</span>
+                            <span className="zoom-btn-label">React</span>
                         </button>
 
                         {/* Authentic Zoom More (...) Popover Menu Button */}
