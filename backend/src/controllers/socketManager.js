@@ -1,5 +1,6 @@
 import {Server} from "socket.io";
 import { Meeting } from "../models/meeting.model.js";
+import bcrypt from "bcrypt";
 
 let connections = {};
 let socketNames = {};
@@ -9,6 +10,9 @@ let activePolls = {}; // { roomKey: { question, options, votes: { socketId: opti
 let roomTranscripts = {}; // { roomKey: [ { id, senderId, name, text, timestamp, createdAt, isManual } ] }
 let messages = {};
 let timeOnline = {};
+let waitingUsers = {}; // { roomKey: [ { socketId, name, joinedAt } ] }
+let roomLocks = {}; // { roomKey: boolean }
+let roomWaitingEnabled = {}; // { roomKey: boolean }
 
 const icebreakers = [
     "If you could have any superpower, what would it be?",
@@ -30,18 +34,73 @@ const findRoomOfSocket = (socketId) => {
 };
 
 export const connectToSocket = (server) => {
+    // Issue 5: Secure CORS with explicit origin matching & credentials support
+    const allowedOrigins = process.env.FRONTEND_URL 
+        ? process.env.FRONTEND_URL.split(",").map(o => o.trim())
+        : ["http://localhost:5173", "http://localhost:3000", "http://localhost:8000"];
+
     const io = new Server(server, {
         cors: {
-            origin: "*",
-            methods: ["GET","POST"],
-            allowedHeaders: ["*"],
+            origin: (origin, callback) => {
+                if (!origin) return callback(null, true);
+                if (allowedOrigins.includes(origin) || allowedOrigins.includes("*") || process.env.NODE_ENV !== "production") {
+                    return callback(null, origin);
+                }
+                return callback(null, allowedOrigins[0] || true);
+            },
+            methods: ["GET", "POST"],
+            allowedHeaders: ["Content-Type", "Authorization"],
             credentials: true
         }
     });
 
+    const admitUserToRoom = (cleanCode, socket, name) => {
+        if (connections[cleanCode] === undefined) {
+            connections[cleanCode] = [];
+        }
+
+        if (!connections[cleanCode].includes(socket.id)) {
+            connections[cleanCode].push(socket.id);
+        }
+
+        socketNames[socket.id] = name || "Participant";
+        socketMutedStates[socket.id] = false;
+        socketCameraStates[socket.id] = false;
+        timeOnline[socket.id] = new Date();
+
+        const usersList = connections[cleanCode].map(id => ({
+            id,
+            name: socketNames[id] || "Participant",
+            isMuted: socketMutedStates[id] || false,
+            isCameraOff: socketCameraStates[id] || false
+        }));
+
+        const hostId = connections[cleanCode][0];
+        connections[cleanCode].forEach((elem) => {
+            io.to(elem).emit("user-joined", socket.id, socketNames[socket.id], usersList, hostId);
+        });
+
+        // Replay chat messages
+        if (messages[cleanCode] !== undefined) {
+            messages[cleanCode].forEach((msg) => {
+                io.to(socket.id).emit("chat-message", msg.data, msg.sender, msg['socket-id-sender']);
+            });
+        }
+
+        // Sync active poll if it exists
+        if (activePolls[cleanCode] !== undefined) {
+            io.to(socket.id).emit("poll-update", activePolls[cleanCode]);
+        }
+
+        // Sync room transcripts to newly joined participant
+        if (roomTranscripts[cleanCode] && roomTranscripts[cleanCode].length > 0) {
+            io.to(socket.id).emit("room-transcript-sync", roomTranscripts[cleanCode]);
+        }
+    };
+
     io.on("connection", (socket) => {
 
-        socket.on("join-call", async (path, name) => {
+        socket.on("join-call", async (path, name, password) => {
             try {
                 // Extract clean room code
                 const cleanCode = (path || "").toString().replace(/^\/meeting\//, "").split("/").pop().trim();
@@ -50,60 +109,66 @@ export const connectToSocket = (server) => {
                     return;
                 }
 
-                // Ensure meeting exists or auto-register it
+                // Issue 2: Verify meeting code in DB or check if already active
+                let meeting = null;
                 try {
-                    let meetingExists = await Meeting.findOne({ meetingCode: cleanCode });
-                    if (!meetingExists) {
-                        meetingExists = new Meeting({ user_id: "guest_or_direct", meetingCode: cleanCode });
-                        await meetingExists.save();
-                    }
+                    meeting = await Meeting.findOne({ meetingCode: cleanCode });
                 } catch (dbErr) {
                     console.warn("DB check warning:", dbErr.message);
                 }
 
-                if (connections[cleanCode] === undefined) {
-                    connections[cleanCode] = [];
+                const isRoomActive = connections[cleanCode] && connections[cleanCode].length > 0;
+
+                // Reject if neither registered in database nor an active room
+                if (!meeting && !isRoomActive) {
+                    socket.emit("join-error", "Meeting does not exist or has expired. Please verify the code or schedule a meeting.");
+                    return;
                 }
 
-                // Avoid duplicate socket ID in room
-                if (!connections[cleanCode].includes(socket.id)) {
-                    connections[cleanCode].push(socket.id);
+                // Check meeting lock status
+                if (roomLocks[cleanCode] || (meeting && meeting.isLocked)) {
+                    socket.emit("join-error", "This meeting has been locked by the host.");
+                    return;
                 }
 
-                socketNames[socket.id] = name || "Participant";
-                socketMutedStates[socket.id] = false;
-                socketCameraStates[socket.id] = false;
-                timeOnline[socket.id] = new Date();
+                // Check password if set on meeting
+                if (meeting && meeting.password) {
+                    const passwordProvided = (password || "").toString().trim();
+                    const isMatch = await bcrypt.compare(passwordProvided, meeting.password);
+                    if (!isMatch) {
+                        socket.emit("join-error", "Incorrect meeting password.");
+                        return;
+                    }
+                }
 
-                // Emit to all users in room including the new user
-                const usersList = connections[cleanCode].map(id => ({
-                    id,
-                    name: socketNames[id] || "Participant",
-                    isMuted: socketMutedStates[id] || false,
-                    isCameraOff: socketCameraStates[id] || false
-                }));
+                // Check Waiting Room feature
+                const isWaitingOn = roomWaitingEnabled[cleanCode] ?? (meeting ? meeting.isWaitingRoomEnabled : false);
+                const hasHost = connections[cleanCode] && connections[cleanCode].length > 0;
 
-                const hostId = connections[cleanCode][0];
-                connections[cleanCode].forEach((elem) => {
-                    io.to(elem).emit("user-joined", socket.id, socketNames[socket.id], usersList, hostId);
-                });
-
-                // Replay chat messages
-                if (messages[cleanCode] !== undefined) {
-                    messages[cleanCode].forEach((msg) => {
-                        io.to(socket.id).emit("chat-message", msg.data, msg.sender, msg['socket-id-sender']);
+                if (isWaitingOn && hasHost) {
+                    if (!waitingUsers[cleanCode]) waitingUsers[cleanCode] = [];
+                    waitingUsers[cleanCode] = waitingUsers[cleanCode].filter(u => u.socketId !== socket.id);
+                    waitingUsers[cleanCode].push({
+                        socketId: socket.id,
+                        name: name || "Participant",
+                        joinedAt: Date.now()
                     });
+
+                    socket.emit("waiting-for-host", {
+                        meetingCode: cleanCode,
+                        message: "Please wait, the meeting host will let you in soon."
+                    });
+
+                    // Notify host of the pending join request
+                    const hostId = connections[cleanCode][0];
+                    io.to(hostId).emit("join-request", {
+                        socketId: socket.id,
+                        name: name || "Participant"
+                    });
+                    return;
                 }
 
-                // Sync active poll if it exists
-                if (activePolls[cleanCode] !== undefined) {
-                    io.to(socket.id).emit("poll-update", activePolls[cleanCode]);
-                }
-
-                // Sync room transcripts to newly joined participant
-                if (roomTranscripts[cleanCode] && roomTranscripts[cleanCode].length > 0) {
-                    io.to(socket.id).emit("room-transcript-sync", roomTranscripts[cleanCode]);
-                }
+                admitUserToRoom(cleanCode, socket, name);
             } catch (err) {
                 console.error("Socket join error:", err);
                 socket.emit("join-error", "Could not join meeting room.");
@@ -327,49 +392,136 @@ export const connectToSocket = (server) => {
             }
         });
 
-        // Host individual participant mute
+        // Issue 1: Host-Only Individual participant mute
         socket.on("host-mute-user", (targetUserId, shouldMute) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            if (!matchingRoom || !connections[matchingRoom]) return;
+            if (socket.id !== connections[matchingRoom][0]) {
+                socket.emit("action-denied", "Only the meeting host can mute participants.");
+                return;
+            }
             io.to(targetUserId).emit("host-mute-all", shouldMute);
         });
 
-        // Host security command signals
+        // Issue 1: Host-Only Mute All command signal
         socket.on("host-mute-all", (shouldMute) => {
             const matchingRoom = findRoomOfSocket(socket.id);
-            if (matchingRoom) {
-                connections[matchingRoom].forEach((elem) => {
-                    if (elem !== socket.id) {
-                        io.to(elem).emit("host-mute-all", shouldMute);
-                    }
-                });
+            if (!matchingRoom || !connections[matchingRoom]) return;
+            if (socket.id !== connections[matchingRoom][0]) {
+                socket.emit("action-denied", "Only the meeting host can mute all participants.");
+                return;
             }
+            connections[matchingRoom].forEach((elem) => {
+                if (elem !== socket.id) {
+                    io.to(elem).emit("host-mute-all", shouldMute);
+                }
+            });
         });
 
+        // Issue 1: Host-Only Disable Cameras signal
         socket.on("host-disable-video", (shouldDisable) => {
             const matchingRoom = findRoomOfSocket(socket.id);
-            if (matchingRoom) {
+            if (!matchingRoom || !connections[matchingRoom]) return;
+            if (socket.id !== connections[matchingRoom][0]) {
+                socket.emit("action-denied", "Only the meeting host can disable participant cameras.");
+                return;
+            }
+            connections[matchingRoom].forEach((elem) => {
+                if (elem !== socket.id) {
+                    io.to(elem).emit("host-disable-video", shouldDisable);
+                }
+            });
+        });
+
+        // Issue 1: Host-Only Transfer Capability (Prevents Host Impersonation)
+        socket.on("make-host", (targetUserId) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            if (!matchingRoom || !connections[matchingRoom]) return;
+
+            const currentHostId = connections[matchingRoom][0];
+            if (socket.id !== currentHostId) {
+                socket.emit("action-denied", "Only the current host can transfer host privileges.");
+                return;
+            }
+
+            const targetIndex = connections[matchingRoom].indexOf(targetUserId);
+            if (targetIndex !== -1) {
+                // Place new host at index 0
+                connections[matchingRoom].splice(targetIndex, 1);
+                connections[matchingRoom].unshift(targetUserId);
+                const newHostName = socketNames[targetUserId] || "Participant";
                 connections[matchingRoom].forEach((elem) => {
-                    if (elem !== socket.id) {
-                        io.to(elem).emit("host-disable-video", shouldDisable);
-                    }
+                    io.to(elem).emit("host-changed", targetUserId, newHostName);
                 });
             }
         });
 
-        // Host transfer capability
-        socket.on("make-host", (targetUserId) => {
+        // Issue 2: Waiting Room Host Actions (Admit / Reject)
+        socket.on("admit-user", (targetSocketId) => {
             const matchingRoom = findRoomOfSocket(socket.id);
-            if (matchingRoom && connections[matchingRoom]) {
-                const targetIndex = connections[matchingRoom].indexOf(targetUserId);
-                if (targetIndex !== -1) {
-                    // Place new host at index 0
-                    connections[matchingRoom].splice(targetIndex, 1);
-                    connections[matchingRoom].unshift(targetUserId);
-                    const newHostName = socketNames[targetUserId] || "Participant";
-                    connections[matchingRoom].forEach((elem) => {
-                        io.to(elem).emit("host-changed", targetUserId, newHostName);
-                    });
+            if (!matchingRoom || !connections[matchingRoom]) return;
+
+            const currentHostId = connections[matchingRoom][0];
+            if (socket.id !== currentHostId) {
+                socket.emit("action-denied", "Only the host can admit participants from the waiting room.");
+                return;
+            }
+
+            if (waitingUsers[matchingRoom]) {
+                const userIdx = waitingUsers[matchingRoom].findIndex(u => u.socketId === targetSocketId);
+                if (userIdx !== -1) {
+                    const waitingUser = waitingUsers[matchingRoom][userIdx];
+                    waitingUsers[matchingRoom].splice(userIdx, 1);
+                    const targetSocket = io.sockets.sockets.get(targetSocketId);
+                    if (targetSocket) {
+                        targetSocket.emit("admitted-by-host");
+                        admitUserToRoom(matchingRoom, targetSocket, waitingUser.name);
+                    }
                 }
             }
+        });
+
+        socket.on("reject-user", (targetSocketId) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            if (!matchingRoom || !connections[matchingRoom]) return;
+
+            const currentHostId = connections[matchingRoom][0];
+            if (socket.id !== currentHostId) {
+                socket.emit("action-denied", "Only the host can reject participants.");
+                return;
+            }
+
+            if (waitingUsers[matchingRoom]) {
+                waitingUsers[matchingRoom] = waitingUsers[matchingRoom].filter(u => u.socketId !== targetSocketId);
+                io.to(targetSocketId).emit("join-error", "The host has declined your request to join the meeting.");
+            }
+        });
+
+        // Issue 2: Host Room Lock & Waiting Room Controls
+        socket.on("toggle-lock-meeting", (isLocked) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            if (!matchingRoom || !connections[matchingRoom]) return;
+            if (socket.id !== connections[matchingRoom][0]) {
+                socket.emit("action-denied", "Only the host can lock or unlock the meeting.");
+                return;
+            }
+            roomLocks[matchingRoom] = Boolean(isLocked);
+            connections[matchingRoom].forEach(elem => {
+                io.to(elem).emit("meeting-locked-status", Boolean(isLocked));
+            });
+        });
+
+        socket.on("toggle-waiting-room", (isEnabled) => {
+            const matchingRoom = findRoomOfSocket(socket.id);
+            if (!matchingRoom || !connections[matchingRoom]) return;
+            if (socket.id !== connections[matchingRoom][0]) {
+                socket.emit("action-denied", "Only the host can configure the waiting room.");
+                return;
+            }
+            roomWaitingEnabled[matchingRoom] = Boolean(isEnabled);
+            connections[matchingRoom].forEach(elem => {
+                io.to(elem).emit("waiting-room-status", Boolean(isEnabled));
+            });
         });
 
         // Mid-meeting name change
@@ -396,6 +548,11 @@ export const connectToSocket = (server) => {
         });
 
         socket.on("disconnect", () => {
+            // Clean up if user was waiting in the lobby
+            for (const [rCode, waiters] of Object.entries(waitingUsers)) {
+                waitingUsers[rCode] = waiters.filter(w => w.socketId !== socket.id);
+            }
+
             const matchingRoom = findRoomOfSocket(socket.id);
             if (matchingRoom) {
                 // Remove user from room array first
@@ -420,6 +577,9 @@ export const connectToSocket = (server) => {
                     delete connections[matchingRoom];
                     delete activePolls[matchingRoom];
                     delete roomTranscripts[matchingRoom];
+                    delete waitingUsers[matchingRoom];
+                    delete roomLocks[matchingRoom];
+                    delete roomWaitingEnabled[matchingRoom];
                 }
             }
 

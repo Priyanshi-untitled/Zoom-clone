@@ -10,6 +10,7 @@ import {Server} from "socket.io";
 import mongoose from "mongoose";
 import {connectToSocket} from "./controllers/socketManager.js";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import userRoutes from "./routes/users.routes.js";
 import meetingRoutes from "./routes/meeting.routes.js";
 
@@ -19,7 +20,34 @@ const io = connectToSocket(server);
 
 app.set("port",(process.env.PORT || 8000));
 
-app.use(cors());
+// Issue 5: Secure CORS with credentials and specific origin matching
+const allowedOrigins = process.env.FRONTEND_URL 
+    ? process.env.FRONTEND_URL.split(",").map(o => o.trim())
+    : ["http://localhost:5173", "http://localhost:3000", "http://localhost:8000"];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin) || allowedOrigins.includes("*") || process.env.NODE_ENV !== "production") {
+            return callback(null, origin);
+        }
+        return callback(null, allowedOrigins[0] || true);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+// Issue 7: General API rate limiter (300 requests per 15 minutes per IP)
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many requests from this IP, please try again later." }
+});
+app.use("/api", generalLimiter);
+
 app.use(express.json({limit:"40kb"}));
 app.use(express.urlencoded({limit:"40kb", extended:true}));
 

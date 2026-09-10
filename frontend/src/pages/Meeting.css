@@ -2974,3 +2974,287 @@
 .invite-full-width-btn:hover {
     background: #3f3f46;
 }
+
+/* ==========================================================================
+   Waiting Room Lobby Screen (Zoom-inspired Participant Wait Screen)
+   ========================================================================== */
+
+.waiting-lobby-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #09090b;
+    color: #ffffff;
+    padding: 24px;
+}
+
+.waiting-lobby-card {
+    background: #18181b;
+    border: 1px solid var(--meeting-border);
+    border-radius: 16px;
+    padding: 40px 32px;
+    max-width: 480px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.waiting-lobby-spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid rgba(99, 102, 241, 0.2);
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin-lobby 1s linear infinite;
+    margin-bottom: 8px;
+}
+
+@keyframes spin-lobby {
+    to { transform: rotate(360deg); }
+}
+
+.waiting-lobby-title {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.4;
+    color: #f4f4f5;
+    margin: 0;
+}
+
+.waiting-lobby-subtext {
+    font-size: 14px;
+    color: #a1a1aa;
+    margin: 0;
+}
+
+.waiting-lobby-name {
+    font-size: 13.5px;
+    color: #71717a;
+    margin: 0;
+}
+
+.waiting-lobby-actions {
+    margin-top: 12px;
+    width: 100%;
+}
+
+.waiting-lobby-leave-btn {
+    background: #ef4444;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    width: 100%;
+}
+
+.waiting-lobby-leave-btn:hover {
+    background: #dc2626;
+}
+
+/* ==========================================================================
+   Host Waiting Room Entry Banner
+   ========================================================================== */
+
+.host-waiting-banner {
+    background: linear-gradient(90deg, #1e1b4b 0%, #312e81 100%);
+    border-bottom: 1.5px solid #4338ca;
+    color: #e0e7ff;
+    padding: 10px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    z-index: 20;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    animation: slideDownBanner 0.25s ease-out;
+}
+
+@keyframes slideDownBanner {
+    from { transform: translateY(-100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.waiting-banner-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13.5px;
+}
+
+.waiting-banner-icon {
+    font-size: 16px;
+}
+
+.waiting-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.banner-admit-btn {
+    background: #10b981;
+    color: #ffffff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.banner-admit-btn:hover {
+    background: #059669;
+}
+
+.banner-reject-btn {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.banner-reject-btn:hover {
+    background: #ef4444;
+    color: #ffffff;
+}
+
+.banner-admit-all-btn {
+    background: #6366f1;
+    color: #ffffff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.banner-admit-all-btn:hover {
+    background: #4f46e5;
+}
+
+/* ==========================================================================
+   Participants Sidebar Waiting Room Section
+   ========================================================================== */
+
+.waiting-room-sidebar-section {
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 14px;
+}
+
+.waiting-room-sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.waiting-room-sidebar-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #a5b4fc;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.admit-all-sidebar-btn {
+    background: #6366f1;
+    color: #ffffff;
+    border: none;
+    padding: 3px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.admit-all-sidebar-btn:hover {
+    background: #4f46e5;
+}
+
+.waiting-room-sidebar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.waiting-user-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #18181b;
+    border: 1px solid var(--meeting-border);
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+.waiting-user-name-col {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.waiting-user-avatar {
+    font-size: 14px;
+}
+
+.waiting-user-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e4e4e7;
+}
+
+.waiting-user-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.waiting-btn {
+    border: none;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.waiting-btn.admit {
+    background: #10b981;
+    color: #ffffff;
+}
+
+.waiting-btn.admit:hover {
+    background: #059669;
+}
+
+.waiting-btn.reject {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.waiting-btn.reject:hover {
+    background: #ef4444;
+    color: #ffffff;
+}

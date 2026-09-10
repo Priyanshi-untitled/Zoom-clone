@@ -16,6 +16,17 @@ function Register(){
     const handleSubmit = async (e)=>{
         e.preventDefault()
         setMessage("")
+
+        if (password.length < 8) {
+            setMessage("Password must be at least 8 characters long.")
+            return
+        }
+        const hasNumberOrSpecial = /[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/;
+        if (!hasNumberOrSpecial.test(password)) {
+            setMessage("Password must contain at least one number or special character.")
+            return
+        }
+
         setLoading(true)
         try {
             const response = await axios.post(`${BASE_URL}/api/v1/users/register`,{
@@ -91,9 +102,10 @@ function Register(){
                                 <input 
                                     id="password"
                                     type={showPassword ? "text" : "password"} 
-                                    placeholder="Create password" 
+                                    placeholder="Create password (min. 8 characters)" 
                                     value={password} 
                                     onChange={(e)=> setPassword(e.target.value)}
+                                    minLength={8}
                                     required
                                 />
                                 <button 
@@ -104,6 +116,9 @@ function Register(){
                                     {showPassword ? "👁️" : "🙈"}
                                 </button>
                             </div>
+                            <small style={{ fontSize: '11px', color: '#64748B', marginTop: '4px' }}>
+                                Must be at least 8 characters with a number or special character.
+                            </small>
                         </div>
                         <button type="submit" className="submit-btn" disabled={loading}>
                             {loading ? "Registering..." : "Register"}

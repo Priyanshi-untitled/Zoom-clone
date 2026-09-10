@@ -255,7 +255,7 @@ function Dashboard() {
     }
 
     // 3. Action: Schedule Meeting
-    const handleScheduleSubmit = (e) => {
+    const handleScheduleSubmit = async (e) => {
         e.preventDefault()
         if (!scheduleTopic.trim()) {
             showToast("Please provide a meeting topic.")
@@ -263,6 +263,22 @@ function Dashboard() {
         }
 
         const generatedCode = `${Math.floor(100 + Math.random() * 900)}-${Math.floor(100 + Math.random() * 900)}-${Math.floor(100 + Math.random() * 900)}`
+        const cleanCode = generatedCode.replace(/[^a-zA-Z0-9]/g, '')
+
+        // Register scheduled meeting in database
+        try {
+            const token = localStorage.getItem("token")
+            await axios.post(`${BASE_URL}/api/v1/meetings/create`, {
+                meetingCode: cleanCode,
+                topic: scheduleTopic.trim(),
+                user_id: userName || "scheduled_user"
+            }, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            })
+        } catch (apiErr) {
+            console.warn("Scheduled meeting DB registration note:", apiErr)
+        }
+
         const newMeeting = {
             id: `sched-${Date.now()}`,
             topic: scheduleTopic.trim(),
@@ -310,8 +326,20 @@ function Dashboard() {
     }
 
     // Start Personal Meeting Room
-    const handleStartPmi = () => {
+    const handleStartPmi = async () => {
         const cleanPmi = pmiCode.replace(/[^a-zA-Z0-9]/g, '')
+        try {
+            const token = localStorage.getItem("token")
+            await axios.post(`${BASE_URL}/api/v1/meetings/create`, {
+                meetingCode: cleanPmi,
+                topic: `${userName}'s Personal Meeting Room`,
+                user_id: userName || "pmi_host"
+            }, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            })
+        } catch (apiErr) {
+            console.warn("PMI registration note:", apiErr)
+        }
         recordRecentMeeting(cleanPmi, "Personal Meeting Room (PMI)")
         navigate(`/meeting/${cleanPmi}`, {
             state: { guestName: userName }
@@ -487,9 +515,20 @@ function Dashboard() {
     }
 
     // Logout
-    const handleLogout = () => {
-        localStorage.removeItem("token")
-        navigate('/')
+    const handleLogout = async () => {
+        try {
+            const token = localStorage.getItem("token")
+            if (token) {
+                await axios.post(`${BASE_URL}/api/v1/users/logout`, {}, {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+            }
+        } catch (e) {
+            console.warn("Logout notice:", e)
+        } finally {
+            localStorage.removeItem("token")
+            navigate('/')
+        }
     }
 
     // Filter upcoming / recent meetings by search query

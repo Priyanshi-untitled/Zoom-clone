@@ -624,6 +624,13 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
     const [hostSocketId, setHostSocketId] = useState(null)
     const [isHost, setIsHost] = useState(true)
 
+    // Security & Waiting Room States
+    const [isWaitingInLobby, setIsWaitingInLobby] = useState(false)
+    const [waitingMessage, setWaitingMessage] = useState("Please wait, the meeting host will let you in soon.")
+    const [pendingJoinRequests, setPendingJoinRequests] = useState([]) // [{ socketId, name }]
+    const [isMeetingLocked, setIsMeetingLocked] = useState(false)
+    const [isWaitingRoomActive, setIsWaitingRoomActive] = useState(false)
+
     // Collaborative whiteboard sharing ownership
     const [whiteboardSharer, setWhiteboardSharer] = useState(null) // { id, name }
 
@@ -1244,6 +1251,30 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
         addNotification(shouldDisable ? "You disabled all participant cameras." : "You enabled all participant cameras.", "info")
     }
 
+    const handleAdmitUser = (targetSocketId) => {
+        socketRef.current?.emit('admit-user', targetSocketId)
+        setPendingJoinRequests(prev => prev.filter(u => u.socketId !== targetSocketId))
+    }
+
+    const handleRejectUser = (targetSocketId) => {
+        socketRef.current?.emit('reject-user', targetSocketId)
+        setPendingJoinRequests(prev => prev.filter(u => u.socketId !== targetSocketId))
+    }
+
+    const handleToggleLockMeeting = () => {
+        const nextLock = !isMeetingLocked
+        setIsMeetingLocked(nextLock)
+        socketRef.current?.emit('toggle-lock-meeting', nextLock)
+        addNotification(nextLock ? "You locked the meeting. No new participants can join." : "You unlocked the meeting.", "info")
+    }
+
+    const handleToggleWaitingRoom = () => {
+        const nextWaiting = !isWaitingRoomActive
+        setIsWaitingRoomActive(nextWaiting)
+        socketRef.current?.emit('toggle-waiting-room', nextWaiting)
+        addNotification(nextWaiting ? "Waiting room enabled." : "Waiting room disabled.", "info")
+    }
+
     // ---- Leave Meeting ----
     const leaveMeeting = () => {
         // Automatically save meeting transcript & AI summary to past meeting records
@@ -1522,6 +1553,43 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
             socketRef.current.on('join-error', (errMsg) => {
                 alert(errMsg)
                 navigate('/dashboard')
+            })
+
+            // Waiting room lobby trigger
+            socketRef.current.on('waiting-for-host', (data) => {
+                setIsWaitingInLobby(true)
+                if (data?.message) setWaitingMessage(data.message)
+            })
+
+            // Admitted into meeting by host
+            socketRef.current.on('admitted-by-host', () => {
+                setIsWaitingInLobby(false)
+                addNotification("You have been admitted to the meeting!", "info")
+            })
+
+            // Host receives pending join request
+            socketRef.current.on('join-request', (reqData) => {
+                setPendingJoinRequests(prev => {
+                    if (prev.some(u => u.socketId === reqData.socketId)) return prev
+                    return [...prev, reqData]
+                })
+                addNotification(`${reqData.name} entered the waiting room.`, "info")
+            })
+
+            // Security: Host action denied (e.g. non-host tried privileged operation)
+            socketRef.current.on('action-denied', (msg) => {
+                addNotification(`Security Alert: ${msg}`, "error")
+            })
+
+            // Room lock & waiting room status changes
+            socketRef.current.on('meeting-locked-status', (locked) => {
+                setIsMeetingLocked(locked)
+                addNotification(locked ? "Host locked the meeting. No new participants can join." : "Host unlocked the meeting.", "info")
+            })
+
+            socketRef.current.on('waiting-room-status', (enabled) => {
+                setIsWaitingRoomActive(enabled)
+                addNotification(enabled ? "Host enabled the waiting room." : "Host disabled the waiting room.", "info")
             })
 
             // When a user joins
@@ -1887,6 +1955,24 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
     }
 
+    if (isWaitingInLobby) {
+        return (
+            <div className="waiting-lobby-container">
+                <div className="waiting-lobby-card">
+                    <div className="waiting-lobby-spinner"></div>
+                    <h2 className="waiting-lobby-title">{waitingMessage}</h2>
+                    <p className="waiting-lobby-subtext">Meeting ID: <strong>{code}</strong></p>
+                    <p className="waiting-lobby-name">Signed in as: <strong>{displayName}</strong></p>
+                    <div className="waiting-lobby-actions">
+                        <button className="waiting-lobby-leave-btn" onClick={() => navigate('/dashboard')}>
+                            Leave Meeting
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="meeting-wrapper">
             {/* In-Call Notifications container */}
@@ -1914,6 +2000,44 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                 <div className="screen-share-banner">
                     <span>🖥️ You are sharing your screen to the meeting</span>
                     <button className="stop-share-btn" onClick={stopScreenShare}>Stop Sharing</button>
+                </div>
+            )}
+
+            {/* Host Waiting Room Entry Notification Banner */}
+            {isHost && pendingJoinRequests.length > 0 && (
+                <div className="host-waiting-banner">
+                    <div className="waiting-banner-info">
+                        <span className="waiting-banner-icon">🔔</span>
+                        <span>
+                            <strong>{pendingJoinRequests[0].name}</strong>
+                            {pendingJoinRequests.length > 1 ? ` and ${pendingJoinRequests.length - 1} other(s)` : ''} entered the waiting room
+                        </span>
+                    </div>
+                    <div className="waiting-banner-actions">
+                        <button 
+                            className="banner-admit-btn" 
+                            onClick={() => handleAdmitUser(pendingJoinRequests[0].socketId)}
+                        >
+                            Admit
+                        </button>
+                        <button 
+                            className="banner-reject-btn" 
+                            onClick={() => handleRejectUser(pendingJoinRequests[0].socketId)}
+                        >
+                            Decline
+                        </button>
+                        {pendingJoinRequests.length > 1 && (
+                            <button 
+                                className="banner-admit-all-btn"
+                                onClick={() => {
+                                    pendingJoinRequests.forEach(req => socketRef.current?.emit('admit-user', req.socketId))
+                                    setPendingJoinRequests([])
+                                }}
+                            >
+                                Admit All
+                            </button>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -2148,6 +2272,14 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                             <span className="popover-icon">🎥</span>
                             <span>Turn On All Cameras</span>
                         </button>
+                        <button onClick={() => { handleToggleLockMeeting(); setShowHostPopover(false); }}>
+                            <span className="popover-icon">{isMeetingLocked ? "🔓" : "🔒"}</span>
+                            <span>{isMeetingLocked ? "Unlock Meeting" : "Lock Meeting"}</span>
+                        </button>
+                        <button onClick={() => { handleToggleWaitingRoom(); setShowHostPopover(false); }}>
+                            <span className="popover-icon">{isWaitingRoomActive ? "🚪❌" : "🚪"}</span>
+                            <span>{isWaitingRoomActive ? "Disable Waiting Room" : "Enable Waiting Room"}</span>
+                        </button>
                     </div>
                 )}
 
@@ -2357,6 +2489,52 @@ ${logs.map(log => `[${log.timestamp || '00:00'}] ${log.name}: ${log.text}`).join
                                 </div>
 
                                 <div className="participants-scroll-list">
+                                    {/* Waiting Room Section for Host */}
+                                    {isHost && pendingJoinRequests.length > 0 && (
+                                        <div className="waiting-room-sidebar-section">
+                                            <div className="waiting-room-sidebar-header">
+                                                <span className="waiting-room-sidebar-title">Waiting Room ({pendingJoinRequests.length})</span>
+                                                {pendingJoinRequests.length > 1 && (
+                                                    <button 
+                                                        className="admit-all-sidebar-btn"
+                                                        onClick={() => {
+                                                            pendingJoinRequests.forEach(req => socketRef.current?.emit('admit-user', req.socketId))
+                                                            setPendingJoinRequests([])
+                                                        }}
+                                                    >
+                                                        Admit All
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="waiting-room-sidebar-list">
+                                                {pendingJoinRequests.map(req => (
+                                                    <div key={req.socketId} className="waiting-user-card">
+                                                        <div className="waiting-user-name-col">
+                                                            <span className="waiting-user-avatar">👤</span>
+                                                            <span className="waiting-user-name">{req.name}</span>
+                                                        </div>
+                                                        <div className="waiting-user-actions">
+                                                            <button 
+                                                                className="waiting-btn admit" 
+                                                                onClick={() => handleAdmitUser(req.socketId)}
+                                                                title="Admit to meeting"
+                                                            >
+                                                                Admit
+                                                            </button>
+                                                            <button 
+                                                                className="waiting-btn reject" 
+                                                                onClick={() => handleRejectUser(req.socketId)}
+                                                                title="Decline request"
+                                                            >
+                                                                Remove
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Local User (You) Card */}
                                     <div className="participant-card local-card">
                                         <div className="participant-card-left">
