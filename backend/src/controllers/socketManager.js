@@ -43,10 +43,16 @@ export const connectToSocket = (server) => {
         cors: {
             origin: (origin, callback) => {
                 if (!origin) return callback(null, true);
-                if (allowedOrigins.includes(origin) || allowedOrigins.includes("*") || process.env.NODE_ENV !== "production") {
+                if (
+                    process.env.NODE_ENV !== "production" ||
+                    origin.startsWith("http://localhost:") ||
+                    origin.startsWith("http://127.0.0.1:") ||
+                    allowedOrigins.includes(origin) ||
+                    allowedOrigins.includes("*")
+                ) {
                     return callback(null, origin);
                 }
-                return callback(null, allowedOrigins[0] || true);
+                return callback(null, allowedOrigins[0] || false);
             },
             methods: ["GET", "POST"],
             allowedHeaders: ["Content-Type", "Authorization"],
@@ -119,10 +125,19 @@ export const connectToSocket = (server) => {
 
                 const isRoomActive = connections[cleanCode] && connections[cleanCode].length > 0;
 
-                // Reject if neither registered in database nor an active room
+                // If not in DB and room not active yet, auto-register in MongoDB so meeting starts smoothly
                 if (!meeting && !isRoomActive) {
-                    socket.emit("join-error", "Meeting does not exist or has expired. Please verify the code or schedule a meeting.");
-                    return;
+                    try {
+                        meeting = await Meeting.create({
+                            meetingCode: cleanCode,
+                            topic: `${name || "Host"}'s Meeting Room`,
+                            user_id: name || "host"
+                        });
+                    } catch (dbCreateErr) {
+                        try {
+                            meeting = await Meeting.findOne({ meetingCode: cleanCode });
+                        } catch (e) {}
+                    }
                 }
 
                 // Check meeting lock status

@@ -27,10 +27,25 @@ export const authMiddleware = async (req, res, next) => {
         try {
             decoded = jwt.verify(token, JWT_SECRET);
         } catch (jwtErr) {
+            // Check if user has legacy token from before migration and seamlessly update
+            const legacyUser = await User.findOne({ token });
+            if (legacyUser) {
+                const refreshedJwt = jwt.sign(
+                    { id: legacyUser._id, username: legacyUser.username, name: legacyUser.name },
+                    JWT_SECRET,
+                    { expiresIn: "7d" }
+                );
+                legacyUser.token = refreshedJwt;
+                legacyUser.tokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+                await legacyUser.save();
+                req.user = legacyUser;
+                return next();
+            }
+
             return res.status(httpStatus.UNAUTHORIZED).json({ 
                 message: jwtErr.name === "TokenExpiredError" 
                     ? "Unauthorized: Token has expired. Please log in again." 
-                    : "Unauthorized: Invalid token signature." 
+                    : "Unauthorized: Invalid token signature. Please log in again." 
             });
         }
 

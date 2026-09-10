@@ -23,27 +23,34 @@ app.set("port",(process.env.PORT || 8000));
 // Issue 5: Secure CORS with credentials and specific origin matching
 const allowedOrigins = process.env.FRONTEND_URL 
     ? process.env.FRONTEND_URL.split(",").map(o => o.trim())
-    : ["http://localhost:5173", "http://localhost:3000", "http://localhost:8000"];
+    : ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000", "http://localhost:8000"];
 
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin) || allowedOrigins.includes("*") || process.env.NODE_ENV !== "production") {
+        if (
+            process.env.NODE_ENV !== "production" ||
+            origin.startsWith("http://localhost:") ||
+            origin.startsWith("http://127.0.0.1:") ||
+            allowedOrigins.includes(origin) ||
+            allowedOrigins.includes("*")
+        ) {
             return callback(null, origin);
         }
-        return callback(null, allowedOrigins[0] || true);
+        return callback(null, allowedOrigins[0] || false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-// Issue 7: General API rate limiter (300 requests per 15 minutes per IP)
+// Issue 7: General API rate limiter (300 requests per 15 minutes per IP in prod)
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 300,
+    max: process.env.NODE_ENV === "production" ? 300 : 10000,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: () => process.env.NODE_ENV !== "production",
     message: { message: "Too many requests from this IP, please try again later." }
 });
 app.use("/api", generalLimiter);

@@ -5,12 +5,13 @@ import { authMiddleware } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-// Issue 7: Auth Rate Limiter (Brute-force protection: 10 attempts per 15 minutes)
+// Issue 7: Auth Rate Limiter (Brute-force protection: 15 attempts per 15 minutes in prod, relaxed in dev)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 10,
+    max: process.env.NODE_ENV === "production" ? 15 : 1000,
     standardHeaders: true,
     legacyHeaders: false,
+    skip: () => process.env.NODE_ENV !== "production",
     message: { message: "Too many authentication attempts. Please try again after 15 minutes." }
 });
 
