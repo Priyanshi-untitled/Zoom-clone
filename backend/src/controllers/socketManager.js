@@ -47,6 +47,9 @@ export const connectToSocket = (server) => {
                     process.env.NODE_ENV !== "production" ||
                     origin.startsWith("http://localhost:") ||
                     origin.startsWith("http://127.0.0.1:") ||
+                    origin.endsWith(".onrender.com") ||
+                    origin.endsWith(".vercel.app") ||
+                    origin.endsWith(".netlify.app") ||
                     allowedOrigins.includes(origin) ||
                     allowedOrigins.includes("*")
                 ) {
