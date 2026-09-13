@@ -1,4 +1,4 @@
-# MeetWeb (Zoom Clone) — Full-Stack Real-Time Video Conferencing & Security Guide
+# MeetWeb — Full-Stack Real-Time Video Conferencing & Security Guide
 
 MeetWeb is an enterprise-grade, high-performance web conferencing platform built with React, Node.js, Express, Socket.io, and WebRTC. It supports multi-participant peer-to-peer audio/video calling, screen sharing, collaborative whiteboards, live speech transcription with automated AI meeting minutes, real-time polling, and decentralized P2P file transfers.
 
@@ -200,26 +200,3 @@ Visit `http://localhost:5173` in your browser.
 
 ---
 
-## 🎓 Technical Interview Guide & FAQ
-
-### Q1: Why did you choose WebRTC Mesh over SFU (Selective Forwarding Unit) or MCU (Multipoint Control Unit)?
-**Answer**:
-- **Mesh**: Peer-to-peer topology where each client sends video directly to every other participant. It requires zero media server infrastructure, has negligible server hosting costs, and provides true end-to-end encryption. It is ideal for 2–8 participants.
-- **SFU (e.g. mediasoup, Janus, LiveKit)**: Clients send 1 upstream feed to the server, and the server distributes downstream feeds to other peers. Better for 10–100+ participants but requires dedicated media server compute and high network egress bandwidth.
-- **MCU**: The server decodes, composites all video into a single stream, re-encodes, and sends it back. Very CPU-heavy with noticeable encoding latency.
-
-### Q2: How does signaling work in WebRTC?
-**Answer**:
-WebRTC does not prescribe a signaling protocol. We used **Socket.io** over WebSockets:
-1. Client A creates an **SDP Offer** describing its audio/video codecs and capabilities.
-2. Client A sets `peer.setLocalDescription(offer)` and emits `'signal'` through Socket.io.
-3. Client B receives the offer, calls `peer.setRemoteDescription(offer)`, creates an **SDP Answer**, sets `peer.setLocalDescription(answer)`, and emits it back.
-4. As network routes are discovered, each client generates **ICE Candidates** (STUN/TURN public IP:Port candidates) and relays them via signaling to establish the direct P2P connection.
-
-### Q3: How did you prevent Host Impersonation?
-**Answer**:
-Socket.io events are client-driven and can be triggered by any connected socket. In `socketManager.js`, the room's host is stored as `connections[room][0]`. For any privileged action (`make-host`, `host-mute-all`, `host-disable-video`, `host-mute-user`, `toggle-lock-meeting`), we verify `socket.id === connections[room][0]`. If unauthorized, we emit `'action-denied'` and terminate execution immediately.
-
-### Q4: How do you handle authentication securely in a Single-Page App?
-**Answer**:
-We use cryptographically signed JWTs with 7-day expiration. On login, the backend issues both an `HttpOnly`, `SameSite: "Lax"`, `Secure` cookie and a response body token. HttpOnly prevents XSS attackers from stealing the token through JavaScript, while the DB tracks `tokenExpiresAt` so logout immediately invalidates the session server-side.
